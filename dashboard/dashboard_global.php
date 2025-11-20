@@ -10,6 +10,9 @@ if ($action) {
     // MODO API JSON
     header('Content-Type: application/json; charset=utf-8');
 
+    // -----------------------------------------------------------------
+    // STATS
+    // -----------------------------------------------------------------
     if ($action === 'stats') {
         try {
             // 1) total_reported: suma de total_personas del último reporte por ruta
@@ -35,22 +38,33 @@ if ($action) {
             $sql_routes_active = "SELECT COUNT(*) FROM ruta WHERE flag_arrival = 0";
             $routes_active = (int)$pdo->query($sql_routes_active)->fetchColumn();
 
-            // 4) conteo de rutas por estado
+            // 4) conteo de rutas por estado, usando el ÚLTIMO reporte por ruta
+            //    y la convención de tu compañero:
+            //    tipo_accion = normal       → sin_problema
+            //    tipo_accion = inconveniente → inconveniente
+            //    tipo_accion = critico      → critico
             $sql_status_counts = "
                 SELECT
-                    SUM(CASE WHEN lr.idaccion IS NULL THEN 1 ELSE 0 END) AS sin_problema,
-                    SUM(CASE WHEN lr.idaccion IS NOT NULL
-                             AND (a.tipo_accion = 'falla'
-                                  OR LOWER(a.nombre) LIKE '%falla%'
-                                  OR LOWER(a.nombre) LIKE '%accidente%'
-                                  OR LOWER(a.nombre) LIKE '%accident%')
-                             THEN 1 ELSE 0 END) AS falla,
-                    SUM(CASE WHEN lr.idaccion IS NOT NULL
-                             AND NOT (a.tipo_accion = 'falla'
-                                      OR LOWER(a.nombre) LIKE '%falla%'
-                                      OR LOWER(a.nombre) LIKE '%accidente%'
-                                      OR LOWER(a.nombre) LIKE '%accident%')
-                             THEN 1 ELSE 0 END) AS inconveniente
+                    SUM(
+                        CASE 
+                          WHEN lr.idaccion IS NULL 
+                               OR a.tipo_accion = 'normal'
+                               OR a.tipo_accion IS NULL
+                          THEN 1 ELSE 0 
+                        END
+                    ) AS sin_problema,
+                    SUM(
+                        CASE 
+                          WHEN a.tipo_accion = 'inconveniente' 
+                          THEN 1 ELSE 0 
+                        END
+                    ) AS inconveniente,
+                    SUM(
+                        CASE 
+                          WHEN a.tipo_accion = 'critico' 
+                          THEN 1 ELSE 0 
+                        END
+                    ) AS critico
                 FROM (
                     SELECT r1.idruta, r1.idaccion
                     FROM reporte r1
@@ -62,7 +76,11 @@ if ($action) {
                 ) lr
                 LEFT JOIN acciones a ON lr.idaccion = a.idaccion
             ";
-            $status = $pdo->query($sql_status_counts)->fetch(PDO::FETCH_ASSOC);
+            $status = $pdo->query($sql_status_counts)->fetch(PDO::FETCH_ASSOC) ?: [
+                'sin_problema'  => 0,
+                'inconveniente' => 0,
+                'critico'       => 0,
+            ];
 
             // 5) total de rutas
             $sql_total_routes = "SELECT COUNT(*) FROM ruta";
@@ -75,7 +93,7 @@ if ($action) {
                 'routes_total'    => $total_routes,
                 'sin_problema'    => (int)($status['sin_problema'] ?? 0),
                 'inconveniente'   => (int)($status['inconveniente'] ?? 0),
-                'falla'           => (int)($status['falla'] ?? 0),
+                'critico'         => (int)($status['critico'] ?? 0),
             ]);
             exit;
         } catch (Exception $e) {
@@ -85,6 +103,9 @@ if ($action) {
         }
     }
 
+    // -----------------------------------------------------------------
+    // MAP
+    // -----------------------------------------------------------------
     if ($action === 'map') {
         try {
             $sql = "
@@ -94,6 +115,7 @@ if ($action) {
                        rep.idaccion, a.nombre AS accion_nombre, a.tipo_accion
                 FROM ruta r
                 LEFT JOIN (
+                    -- último reporte por ruta
                     SELECT r1.*
                     FROM reporte r1
                     INNER JOIN (
@@ -111,19 +133,22 @@ if ($action) {
 
             $out = [];
             foreach ($rows as $row) {
+                // Clasificación de estado compatible con backend de tu compañero
+                // tipo_accion = critico → 'critico'
+                // tipo_accion = normal o idaccion NULL → 'sin_problema'
+                // otro (inconveniente, etc.) → 'inconveniente'
                 $status = 'sin_problema';
                 if (!empty($row['idaccion'])) {
-                    $nombre = strtolower($row['accion_nombre'] ?? '');
-                    $tipo   = strtolower($row['tipo_accion'] ?? '');
-                    if ($tipo === 'falla'
-                        || strpos($nombre, 'falla') !== false
-                        || strpos($nombre, 'accident') !== false
-                        || strpos($nombre, 'accidente') !== false) {
-                        $status = 'falla';
+                    $tipo = strtolower($row['tipo_accion'] ?? '');
+                    if ($tipo === 'critico') {
+                        $status = 'critico';
+                    } elseif ($tipo === 'normal' || $tipo === '') {
+                        $status = 'sin_problema';
                     } else {
                         $status = 'inconveniente';
                     }
                 }
+
                 $out[] = [
                     'idruta'         => $row['idruta'],
                     'ruta_nombre'    => $row['ruta_nombre'],
@@ -147,6 +172,9 @@ if ($action) {
         }
     }
 
+    // -----------------------------------------------------------------
+    // RECENT REPORTS
+    // -----------------------------------------------------------------
     if ($action === 'recent_reports') {
         $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 50;
         try {
@@ -189,7 +217,6 @@ if ($action) {
 // MODO PÁGINA HTML (sin ?action=...)
 // ---------------------------------------------------------------------
 $pageTitle   = 'Dashboard Global';
-$baseUrl     = '..';
 $currentPage = 'dashboard_global';
 
 require __DIR__ . '/../templates/header.php';
@@ -199,11 +226,11 @@ require __DIR__ . '/../templates/header.php';
 <section class="content-header">
   <div class="container-fluid">
     <div class="row mb-2">
-      <div class="col-sm-6">
+      <div class="col-sm-8">
         <h1>Centro de Monitoreo - Dashboard Global</h1>
         <p class="text-muted mb-0">Resumen en tiempo real de rutas, personas y eventos</p>
       </div>
-      <div class="col-sm-6 text-right">
+      <div class="col-sm-4 text-right">
         <small class="text-muted">
           Última actualización: <span id="last-update">—</span>
         </small>
@@ -218,7 +245,7 @@ require __DIR__ . '/../templates/header.php';
 
     <!-- KPIs -->
     <div class="row">
-      <div class="col-md-3">
+      <div class="col-md-2">
         <div class="small-box bg-white">
           <div class="inner">
             <p class="text-muted mb-1">Total personas (último reporte)</p>
@@ -229,7 +256,7 @@ require __DIR__ . '/../templates/header.php';
           </div>
         </div>
       </div>
-      <div class="col-md-3">
+      <div class="col-md-2">
         <div class="small-box bg-white">
           <div class="inner">
             <p class="text-muted mb-1">Total estimado (paradas)</p>
@@ -265,8 +292,19 @@ require __DIR__ . '/../templates/header.php';
       <div class="col-md-2">
         <div class="small-box bg-white">
           <div class="inner">
-            <p class="text-muted mb-1">Con inconveniente / falla</p>
-            <h3 id="kpi_inc_falla">0</h3>
+            <p class="text-muted mb-1">Inconveniente</p>
+            <h3 class="text-warning" id="kpi_inconveniente">0</h3>
+          </div>
+          <div class="icon">
+            <i class="fas fa-exclamation-circle"></i>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-2">
+        <div class="small-box bg-white">
+          <div class="inner">
+            <p class="text-muted mb-1">Crítico</p>
+            <h3 class="text-danger" id="kpi_critico">0</h3>
           </div>
           <div class="icon">
             <i class="fas fa-exclamation-triangle"></i>
@@ -275,33 +313,35 @@ require __DIR__ . '/../templates/header.php';
       </div>
     </div>
 
-    <!-- Gráfica + Tabla + Mapa -->
-    <div class="card">
-      <div class="card-header">
-        <h3 class="card-title">Total personas: Reportadas vs Estimadas</h3>
-      </div>
-      <div class="card-body">
-        <div id="chartPersons" style="width:100%;height:260px;"></div>
-      </div>
-    </div>
+    <!-- Gráficas + Tabla + Mapa -->
+    <div class="row">
+      <div class="col-lg-5">
 
-    <div class="card">
-      <div class="card-header">
-        <h3 class="card-title">Estado de las rutas</h3>
-      </div>
-      <div class="card-body">
-        <div id="chartStatus" style="width:100%;height:260px;"></div>
-      </div>
-    </div>
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">Total personas: Reportadas vs Estimadas</h3>
+          </div>
+          <div class="card-body">
+            <div id="chartPersons" style="width:100%;height:260px;"></div>
+          </div>
+        </div>
 
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">Estado de las rutas</h3>
+          </div>
+          <div class="card-body">
+            <div id="chartStatus" style="width:100%;height:260px;"></div>
+          </div>
+        </div>
 
         <div class="card">
           <div class="card-header">
             <h3 class="card-title">Últimos reportes</h3>
           </div>
-          <div class="card-body p-0">
+          <div class="card-body p-1">
             <div class="table-responsive">
-              <table id="tblReports" class="table table-striped table-sm mb-0">
+              <table id="tblReports" class="table table-striped table-md mb-0">
                 <thead>
                   <tr>
                     <th>#</th>
@@ -339,10 +379,8 @@ require __DIR__ . '/../templates/header.php';
 <!-- /.content -->
 
 <!-- Scripts específicos de esta página -->
-<!-- Ya NO necesitamos Chart.js, solo DataTables y Google Maps -->
 <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyC2Zm7v7BAdKaA-KAvna0q4y0lQgwvE1V4"></script>
-
 
 <script>
 const apiBase = location.pathname + '?action=';
@@ -379,8 +417,8 @@ async function renderKpisAndChart(){
     $('#kpi_total_estimated').text(fmtNumber(stats.total_estimated));
     $('#kpi_routes_active').text(fmtNumber(stats.routes_active));
     $('#kpi_sin_problema').text(fmtNumber(stats.sin_problema));
-    const inc_total = (stats.inconveniente || 0) + (stats.falla || 0);
-    $('#kpi_inc_falla').text(fmtNumber(inc_total));
+    $('#kpi_inconveniente').text(fmtNumber(stats.inconveniente));
+    $('#kpi_critico').text(fmtNumber(stats.critico));
     $('#last-update').text(new Date().toLocaleString());
 
     // ---------- ECharts: Personas reportadas vs estimadas ----------
@@ -438,9 +476,9 @@ async function renderKpisAndChart(){
         },
         labelLine: { show: true },
         data: [
-          { value: stats.sin_problema || 0, name: 'Sin problema' },
-          { value: stats.inconveniente || 0, name: 'Inconveniente' },
-          { value: stats.falla || 0, name: 'Falla' }
+          { value: stats.sin_problema || 0,    name: 'Sin problema' },
+          { value: stats.inconveniente || 0,   name: 'Inconveniente' },
+          { value: stats.critico || 0,         name: 'Crítico' }
         ]
       }]
     };
@@ -457,7 +495,6 @@ window.addEventListener('resize', () => {
   if (chartPersons) chartPersons.resize();
   if (chartStatus)  chartStatus.resize();
 });
-
 
 let dataTable = null;
 async function renderRecentReports(){
@@ -493,9 +530,9 @@ async function renderRecentReports(){
 let mapInstance = null;
 let markers = [];
 function colorForStatus(status){
-  if(status === 'sin_problema') return '#2b7cff';
-  if(status === 'inconveniente') return '#f5a623';
-  if(status === 'falla') return '#e53935';
+  if(status === 'sin_problema') return '#39ff14';   // verde fosfo
+  if(status === 'inconveniente') return '#ffa500'; // naranja
+  if(status === 'critico') return '#ff004c';       // rojo fuerte
   return '#6c757d';
 }
 async function renderMap(){
@@ -573,4 +610,3 @@ document.addEventListener('DOMContentLoaded', initDashboard);
 
 <?php
 require __DIR__ . '/../templates/footer.php';
-?>

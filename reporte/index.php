@@ -27,7 +27,7 @@ try {
 $title = "Crear Registro";
 include "../templates/header.php";
 include "../templates/navbar.php";
-include "../templates/sidebar.php";
+//include "../templates/sidebar.php";
 ?>
 <main class="app-main" id="main" tabindex="-1">
 <div class="app-content">
