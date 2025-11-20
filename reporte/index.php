@@ -14,111 +14,145 @@ try {
 
 $selectedRuta = isset($_GET['idruta']) ? intval($_GET['idruta']) : 0;
 
-/* Obtener acciones */
+/* Obtener acciones (por si luego las necesitas) */
 try {
     $acciones = $pdo->query("SELECT idaccion, nombre FROM acciones ORDER BY nombre")->fetchAll();
 } catch (Exception $e) {
     $acciones = [];
 }
-
-$pageTitle = "Crear Reporte";
-$currentPage = "reporte_crear";
-
-require "../templates/header.php";
 ?>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <title>Crear Reporte</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
 
-<!-- Content Wrapper -->
-<div class="content-wrapper">
+    <!-- Bootstrap 4.6 (local, mismo que usa el sistema) -->
+    <link rel="stylesheet" href="<?= BASE_URL ?>/dist/bootstrap-4.6.2/css/bootstrap.min.css">
 
-<section class="content-header">
-  <div class="container-fluid">
-    <h1>Nuevo Reporte</h1>
-  </div>
-</section>
+    <!-- AdminLTE 3.2 (local) -->
+    <link rel="stylesheet" href="<?= BASE_URL ?>/dist/AdminLTE-3.2.0/dist/css/adminlte.min.css">
 
-<section class="content">
-  <div class="container-fluid">
+    <!-- (Opcional) Font Awesome si luego quisieras iconos aquí -->
+    <!--
+    <link rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css"
+          crossorigin="anonymous" referrerpolicy="no-referrer" />
+    -->
 
-    <div class="row justify-content-center">
-      <div class="col-md-6">
+    <style>
+        body {
+            background-color: #f4f6f9; /* mismo fondo que AdminLTE */
+        }
+        .report-wrapper {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 15px;
+        }
+        .report-card {
+            width: 100%;
+            max-width: 520px;
+        }
+    </style>
+</head>
+<body>
 
-        <div class="card card-info">
-          <div class="card-header">
-            <h3 class="card-title">Registrar evento de ruta</h3>
+<div class="report-wrapper">
+
+  <div class="report-card">
+
+    <div class="card card-info">
+      <div class="card-header">
+        <h3 class="card-title mb-0">Nuevo reporte de ruta</h3>
+      </div>
+
+      <form id="formReporte">
+        <div class="card-body">
+
+          <p class="text-muted mb-3">
+            Completa los datos para registrar el evento reportado por el personal en ruta.
+          </p>
+
+          <div id="ajaxError" class="alert alert-danger py-2 px-3 mb-3" style="display:none;"></div>
+
+          <!-- Selección de ruta -->
+          <div class="form-group">
+            <label for="ruta">Ruta</label>
+            <select id="ruta" name="idruta" class="form-control" required>
+              <option value="">Seleccione una ruta</option>
+              <?php foreach ($rutas as $r): ?>
+                <option value="<?= $r['idruta'] ?>"
+                  <?= $selectedRuta === (int)$r['idruta'] ? 'selected' : '' ?>>
+                  <?= htmlspecialchars($r['nombre']) ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
           </div>
 
-          <form id="formReporte">
-            <div class="card-body">
+          <input type="hidden" id="idparada" name="idparada" value="">
 
-              <div id="ajaxError" class="text-danger mb-2" style="display:none;"></div>
+          <!-- Encargado -->
+          <div id="boxEncargado" class="mb-3" style="display:none;">
+            <label class="font-weight-bold d-block">Encargado de ruta</label>
+            <div id="lblEncargado" class="text-muted"></div>
+          </div>
 
-              <!-- Selección de ruta -->
-              <div class="form-group">
-                <label for="ruta">Ruta:</label>
-                <select id="ruta" name="idruta" class="form-control" required>
-                  <option value="">Seleccione una ruta</option>
-                  <?php foreach ($rutas as $r): ?>
-                    <option value="<?= $r['idruta'] ?>"
-                      <?= $selectedRuta === (int)$r['idruta'] ? 'selected' : '' ?>>
-                      <?= htmlspecialchars($r['nombre']) ?>
-                    </option>
-                  <?php endforeach; ?>
-                </select>
-              </div>
+          <!-- Parada actual -->
+          <div id="boxParada" class="mb-3" style="display:none;">
+            <label class="font-weight-bold d-block">Parada actual</label>
+            <div id="lblParada" class="text-muted"></div>
+          </div>
 
-              <input type="hidden" id="idparada" name="idparada" value="">
+          <!-- Acción -->
+          <div id="boxAcciones" class="form-group" style="display:none;">
+            <label for="accion">Acción</label>
+            <select id="accion" name="idaccion" class="form-control"></select>
+          </div>
 
-              <!-- Encargado -->
-              <div id="boxEncargado" class="mb-3" style="display:none;">
-                <label class="font-weight-bold">Encargado de ruta:</label>
-                <div id="lblEncargado"></div>
-              </div>
+          <!-- Personas -->
+          <div class="form-group">
+            <label for="total_personas">Cantidad de personas</label>
+            <input type="number" min="0" id="total_personas" name="total_personas"
+                   class="form-control" required>
+          </div>
 
-              <!-- Parada actual -->
-              <div id="boxParada" class="mb-3" style="display:none;">
-                <label class="font-weight-bold">Parada actual:</label>
-                <div id="lblParada"></div>
-              </div>
-
-              <!-- Acción -->
-              <div id="boxAcciones" class="form-group" style="display:none;">
-                <label for="accion">Acción:</label>
-                <select id="accion" name="idaccion" class="form-control"></select>
-              </div>
-
-              <!-- Personas -->
-              <div class="form-group">
-                <label for="total_personas">Cantidad de personas:</label>
-                <input type="number" min="0" id="total_personas" name="total_personas"
-                       class="form-control" required>
-              </div>
-
-              <div class="form-group">
-                <label for="comentario">Comentario:</label>
-                <input type="text" id="comentario" name="comentario" class="form-control">
-              </div>
-
-            </div>
-
-            <div class="card-footer">
-              <button type="submit" class="btn btn-primary">Guardar</button>
-              <a href="../index.php" class="btn btn-secondary">Cancelar</a>
-              <button type="button" id="btnListaReportes" class="btn btn-info"
-                      style="display:none;">Ver lista de reportes</button>
-            </div>
-
-          </form>
+          <!-- Comentario -->
+          <div class="form-group">
+            <label for="comentario">Comentario</label>
+            <input type="text" id="comentario" name="comentario" class="form-control"
+                   placeholder="Detalle breve del evento (opcional)">
+          </div>
 
         </div>
-      </div>
+
+        <div class="card-footer d-flex justify-content-between">
+          <a href="../index.php" class="btn btn-secondary">Cancelar</a>
+          <div>
+            <button type="button" id="btnListaReportes"
+                    class="btn btn-info mr-2"
+                    style="display:none;">
+              Ver lista de reportes
+            </button>
+            <button type="submit" class="btn btn-primary">
+              Guardar
+            </button>
+          </div>
+        </div>
+
+      </form>
+
     </div>
 
   </div>
-</section>
 
-</div> <!-- /.content-wrapper -->
+</div> <!-- /.report-wrapper -->
 
+<!-- jQuery para el AJAX del form -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+
 <script>
 $(function () {
 
@@ -152,7 +186,7 @@ $(function () {
 
     $("#ruta").on("change", function () {
 
-        $("#ajaxError").hide();
+        $("#ajaxError").hide().text('');
         $("#boxEncargado, #boxParada, #boxAcciones").hide();
         $("#idparada").val("");
 
@@ -171,7 +205,9 @@ $(function () {
             success: function (data) {
 
                 if (data.encargado) {
-                    $("#lblEncargado").text(`${data.encargado.nombre} (Tel: ${data.encargado.telefono})`);
+                    $("#lblEncargado").text(
+                        data.encargado.nombre + " (Tel: " + data.encargado.telefono + ")"
+                    );
                     $("#boxEncargado").fadeIn();
                 }
 
@@ -183,8 +219,10 @@ $(function () {
 
                 $("#accion").empty();
                 if (Array.isArray(data.acciones) && data.acciones.length > 0) {
-                    data.acciones.forEach(a => {
-                        $("#accion").append(`<option value="${a.idaccion}">${a.nombre}</option>`);
+                    data.acciones.forEach(function(a){
+                        $("#accion").append(
+                            '<option value="' + a.idaccion + '">' + a.nombre + '</option>'
+                        );
                     });
                     $("#boxAcciones").fadeIn();
                 }
@@ -200,19 +238,17 @@ $(function () {
         });
     });
 
-    $("#btnListaReportes").on("click", function () {
-        var href = $(this).attr('data-href');
-        if (!href) {
-            alert('Seleccione una ruta primero.');
-            return;
-        }
-        window.location.href = href;
-    });
-
     var preselected = <?= json_encode($selectedRuta) ?>;
-    if (preselected > 0) $("#ruta").trigger('change');
-
+    if (preselected > 0) {
+        $("#ruta").val(preselected).trigger('change');
+    }
 });
 </script>
 
-<?php require "../templates/footer.php"; ?>
+<?php
+// Footer global del sistema (JS de AdminLTE, etc.)
+require "../templates/footer.php";
+?>
+
+</body>
+</html>

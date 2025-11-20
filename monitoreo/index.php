@@ -1,106 +1,159 @@
 <?php
 ini_set('display_errors', 0);
 error_reporting(0);
+
 require_once "../includes/db.php";
+require_once "../includes/config.php";
 
 /* Obtener rutas */
-$sql_rutas = "SELECT idruta, nombre FROM ruta ORDER BY nombre";
 try {
-    $stmt = $pdo->query($sql_rutas);
+    $stmt = $pdo->query("SELECT idruta, nombre FROM ruta ORDER BY nombre");
     $rutas = $stmt->fetchAll();
 } catch (Exception $e) {
     $rutas = [];
 }
 
 /* Obtener agentes */
-$sql_agentes = "SELECT idagente, nombre FROM agente ORDER BY nombre";
 try {
-    $stmt = $pdo->query($sql_agentes);
+    $stmt = $pdo->query("SELECT idagente, nombre FROM agente ORDER BY nombre");
     $agentes = $stmt->fetchAll();
 } catch (Exception $e) {
     $agentes = [];
 }
 
-// If page receives ?idruta=..., preselect that route
-$selectedRuta = isset($_GET['idruta']) ? intval($_GET['idruta']) : 0;
-$selectedAgente = isset($_GET['idagente']) ? intval($_GET['idagente']) : 0;
+// Preseleccionados por GET
+$selectedRuta    = isset($_GET['idruta'])   ? (int)$_GET['idruta']   : 0;
+$selectedAgente  = isset($_GET['idagente']) ? (int)$_GET['idagente'] : 0;
 
-/* Obtener acciones */
-$sql_acciones = "SELECT idaccion, nombre FROM acciones ORDER BY nombre";
+/* Obtener acciones (por si las quieres usar luego) */
 try {
-    $stmt2 = $pdo->query($sql_acciones);
+    $stmt2 = $pdo->query("SELECT idaccion, nombre FROM acciones ORDER BY nombre");
     $acciones = $stmt2->fetchAll();
 } catch (Exception $e) {
     $acciones = [];
 }
+
+$pageTitle   = "Monitoreo - Crear Reporte";
+$currentPage = "monitoreo";
+
+require "../templates/header.php";
 ?>
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Crear Reporte Monitoreo</title>
-    <style>
-        body { font-family: Arial; padding: 20px; }
-        label { display: block; margin-top: 15px; }
-        input, select { padding: 8px; width: 300px; }
-        .btn { padding: 10px 20px; margin-top: 20px; cursor: pointer; }
-        .guardar { background-color: #4CAF50; color: white; border: none; }
-        .cancelar { background-color: #888; color: white; border: none; }
-    </style>
-</head>
-<body>
 
-<h2>Crear Registro</h2>
+<!-- =======================
+     Encabezado de contenido
+======================== -->
+<section class="content-header">
+  <div class="container-fluid">
+    <div class="row mb-2">
+      <div class="col-sm-8">
+        <h1>Crear Registro de Monitoreo</h1>
+        <p class="text-muted mb-0">
+          Registro rápido para que el agente reporte el estado de la ruta en tiempo real.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
 
-<div id="ajaxError" style="color: #b00020; display:none; margin-bottom:12px;"></div>
+<!-- =======================
+     Contenido principal
+======================== -->
+<section class="content">
+  <div class="container-fluid">
 
-<form id="formReporte">
-    <label for="agente">Agente:</label>
-<select id="agente" name="idagente">
-    <option value="">Seleccione un agente</option>
-    <?php foreach ($agentes as $a) : ?>
-        <option value="<?php echo $a['idagente']; ?>" <?php if ($selectedAgente === (int)$a['idagente']) echo 'selected'; ?>><?php echo htmlspecialchars($a['nombre']); ?></option>
-    <?php endforeach; ?>
-</select>
-<label for="ruta">Ruta:</label>
-<select id="ruta" name="idruta">
-    <option value="">Seleccione una ruta</option>
-    <?php foreach ($rutas as $r) : ?>
-        <option value="<?php echo $r['idruta']; ?>" <?php if ($selectedRuta === (int)$r['idruta']) echo 'selected'; ?>><?php echo htmlspecialchars($r['nombre']); ?></option>
-    <?php endforeach; ?>
-</select>
+    <div class="row justify-content-center">
+      <div class="col-md-6">
 
+        <div class="card card-info">
+          <div class="card-header">
+            <h3 class="card-title">Nuevo reporte de agente</h3>
+          </div>
 
+          <form id="formReporte">
+            <div class="card-body">
 
-<input type="hidden" id="idparada" name="idparada" value="">
+              <div id="ajaxError" class="text-danger mb-2" style="display:none;"></div>
 
-<div id="boxEncargado" style="display:none;">
-    <div class="field-label">Encargado de ruta:</div>
-    <div id="lblEncargado" style="font-weight:bold;"></div>
-</div>
+              <!-- Agente -->
+              <div class="form-group">
+                <label for="agente">Agente:</label>
+                <select id="agente" name="idagente" class="form-control" required>
+                  <option value="">Seleccione un agente</option>
+                  <?php foreach ($agentes as $a): ?>
+                    <option value="<?= $a['idagente'] ?>"
+                      <?= $selectedAgente === (int)$a['idagente'] ? 'selected' : '' ?>>
+                      <?= htmlspecialchars($a['nombre']) ?>
+                    </option>
+                  <?php endforeach; ?>
+                </select>
+              </div>
 
-<div id="boxParada" style="display:none;">
-    <div class="field-label">Parada actual:</div>
-    <div id="lblParada" style="font-weight:bold;"></div>
-</div>
+              <!-- Ruta -->
+              <div class="form-group">
+                <label for="ruta">Ruta:</label>
+                <select id="ruta" name="idruta" class="form-control" required>
+                  <option value="">Seleccione una ruta</option>
+                  <?php foreach ($rutas as $r): ?>
+                    <option value="<?= $r['idruta'] ?>"
+                      <?= $selectedRuta === (int)$r['idruta'] ? 'selected' : '' ?>>
+                      <?= htmlspecialchars($r['nombre']) ?>
+                    </option>
+                  <?php endforeach; ?>
+                </select>
+              </div>
 
-<div id="boxAcciones" style="display:none;">
-    <label for="accion">Acción:</label>
-    <select id="accion" name="idaccion"></select>
-</div>
+              <input type="hidden" id="idparada" name="idparada" value="">
 
-<label for="total_personas">Cantidad de personas:</label>
-<input type="number" id="total_personas" name="total_personas" min="0" required>
+              <!-- Encargado -->
+              <div id="boxEncargado" class="mb-3" style="display:none;">
+                <label class="font-weight-bold">Encargado de ruta:</label>
+                <div id="lblEncargado"></div>
+              </div>
 
-<label for="comentario">Comentario (opcional):</label>
-<input type="text" id="comentario" name="comentario">
+              <!-- Parada actual -->
+              <div id="boxParada" class="mb-3" style="display:none;">
+                <label class="font-weight-bold">Parada actual:</label>
+                <div id="lblParada"></div>
+              </div>
 
-<button type="submit" class="btn guardar">Guardar</button>
-<button type="button" class="btn cancelar" onclick="window.location.href='../index.php'">Cancelar</button>
-<button type="button" class="btn" id="btnListaReportes" style="display:none;">Ver lista de reportes</button>
+              <!-- Acción -->
+              <div id="boxAcciones" class="form-group" style="display:none;">
+                <label for="accion">Acción:</label>
+                <select id="accion" name="idaccion" class="form-control"></select>
+              </div>
 
-</form>
+              <!-- Personas -->
+              <div class="form-group">
+                <label for="total_personas">Cantidad de personas:</label>
+                <input type="number" id="total_personas" name="total_personas"
+                       class="form-control" min="0" required>
+              </div>
 
-<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+              <!-- Comentario -->
+              <div class="form-group">
+                <label for="comentario">Comentario (opcional):</label>
+                <input type="text" id="comentario" name="comentario" class="form-control">
+              </div>
+
+            </div><!-- /.card-body -->
+
+            <div class="card-footer">
+              <button type="submit" class="btn btn-primary guardar">Guardar</button>
+              <a href="../index.php" class="btn btn-secondary">Cancelar</a>
+              <button type="button" class="btn btn-info" id="btnListaReportes" style="display:none;">
+                Ver lista de reportes
+              </button>
+            </div>
+          </form>
+
+        </div><!-- /.card -->
+
+      </div>
+    </div>
+
+  </div><!-- /.container-fluid -->
+</section>
+
 <script>
 $(function () {
 
@@ -126,14 +179,12 @@ $(function () {
                     alert(resp.error || "Error al guardar.");
                 }
             },
-            error: function(xhr) {
+            error: function() {
                 $btn.prop("disabled", false).text("Guardar");
                 alert("Error del servidor.");
             }
         });
     });
-
-  
 
     /* === CARGAR INFO AL CAMBIAR RUTA === */
     $("#ruta").on("change", function () {
@@ -142,16 +193,17 @@ $(function () {
         $("#boxEncargado, #boxParada, #boxAcciones").hide();
         $("#idparada").val("");
 
-        var idruta = $(this).val();
+        var idruta   = $(this).val();
+        var idagente = $('#agente').val();
+
         if (!idruta) {
-            // If no route selected, hide the button and clear its href
             $("#btnListaReportes").hide().removeAttr('data-href');
             return;
         }
-        var idagente = $('#agente').val();
+
         if (!idagente) {
-            // If no agent selected, hide the button and clear its href
-           alert('Seleccione un agente primero.');
+            alert('Seleccione un agente primero.');
+            $(this).val('');
             return;
         }
 
@@ -177,13 +229,18 @@ $(function () {
 
                 $("#accion").empty();
                 if (Array.isArray(data.acciones) && data.acciones.length > 0) {
-                    data.acciones.forEach(a => {
-                        $("#accion").append(`<option value="${a.idaccion}">${a.nombre}</option>`);
+                    data.acciones.forEach(function(a){
+                        $("#accion").append(
+                          '<option value="' + a.idaccion + '">' + a.nombre + '</option>'
+                        );
                     });
                     $("#boxAcciones").fadeIn();
                 }
-                // Update the 'Ver lista de reportes' button href for the selected route
-                var listHref = 'lista_reportes.php?idruta=' + encodeURIComponent(idruta)+'&agente='+encodeURIComponent(idagente);
+
+                var listHref = 'lista_reportes.php?idruta=' +
+                               encodeURIComponent(idruta) +
+                               '&agente=' + encodeURIComponent(idagente);
+
                 $("#btnListaReportes").attr('data-href', listHref).fadeIn();
             },
             error: function () {
@@ -194,7 +251,7 @@ $(function () {
 
     /* === BOTÓN: ir a lista_reportes con idruta seleccionado === */
     $("#btnListaReportes").on("click", function () {
-        var href = $(this).attr('data-href') || $(this).data('href');
+        var href = $(this).attr('data-href');
         if (!href) {
             alert('Seleccione una ruta primero.');
             return;
@@ -202,14 +259,19 @@ $(function () {
         window.location.href = href;
     });
 
-    // If server provided a selected route, trigger change to load its data
-    var preselected = <?php echo json_encode($selectedRuta); ?>;
-    if (preselected && preselected > 0) {
-        $("#ruta").trigger('change');
+    // Preseleccionar agente/ruta si vienen por GET
+    var preRuta    = <?= json_encode($selectedRuta) ?>;
+    var preAgente  = <?= json_encode($selectedAgente) ?>;
+
+    if (preAgente > 0) {
+        $("#agente").val(preAgente);
+    }
+    if (preRuta > 0) {
+        $("#ruta").val(preRuta).trigger('change');
     }
 
 });
 </script>
 
-</body>
-</html>
+<?php
+require "../templates/footer.php";
