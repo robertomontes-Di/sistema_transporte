@@ -33,7 +33,7 @@ try {
         SELECT idparada, punto_abordaje
         FROM paradas
         WHERE idruta = :idruta AND atendido = 0
-        ORDER BY idparada ASC
+        ORDER BY orden ASC
         LIMIT 1
     ";
     $stmtPar = $pdo->prepare($sqlParada);

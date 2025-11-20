@@ -18,9 +18,12 @@ if ($idruta <= 0 || $idparada <= 0 || $idaccion <= 0) {
     echo json_encode(['success' => false, 'error' => 'Faltan campos obligatorios: idruta, idparada, idaccion'], JSON_UNESCAPED_UNICODE);
     exit;
 }
-
 try {
-    $sql = "INSERT INTO reporte (idruta, idparada, idaccion, total_personas, comentario) VALUES (:idruta, :idparada, :idaccion, :total_personas, :comentario)";
+
+    // INSERT del reporte
+    $sql = "INSERT INTO reporte (idruta, idparada, idaccion, total_personas, comentario) 
+            VALUES (:idruta, :idparada, :idaccion, :total_personas, :comentario)";
+
     $stmt = $pdo->prepare($sql);
     $stmt->execute([
         ':idruta' => $idruta,
@@ -31,13 +34,31 @@ try {
     ]);
 
     $insertId = $pdo->lastInsertId();
-    echo json_encode(['success' => true, 'message' => 'Reporte guardado correctamente', 'insert_id' => $insertId], JSON_UNESCAPED_UNICODE);
+
+    // --------------------------------------------------------------------
+    // 👉 actualiza las paradas para que el siguiente reporte sea el de la nueva parada.
+    // --------------------------------------------------------------------
+    if ($idaccion == 2) {
+        $sql2 = "UPDATE paradas 
+                 SET atendido = 1 
+                 WHERE idparada = :idparada";
+
+        $stmt2 = $pdo->prepare($sql2);
+        $stmt2->execute([':idparada' => $idparada]);
+    }
+    // --------------------------------------------------------------------
+
+    echo json_encode([
+        'success' => true, 
+        'message' => 'Reporte guardado correctamente', 
+        'insert_id' => $insertId
+    ], JSON_UNESCAPED_UNICODE);
     exit;
 
 } catch (Exception $e) {
-    // Log server-side for debugging
     error_log('guardar.php exception: ' . $e->getMessage());
     http_response_code(500);
+
     if ($debug) {
         echo json_encode(['success' => false, 'error' => 'Error al guardar el reporte', 'detalle' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
     } else {
@@ -45,3 +66,4 @@ try {
     }
     exit;
 }
+
