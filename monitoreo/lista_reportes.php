@@ -1,117 +1,147 @@
 <?php
+// reporte/lista_reportes.php
 
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
+require_once __DIR__ . '/../includes/config.php';
+require_once __DIR__ . '/../includes/db.php';
 
-require_once "../includes/db.php";
+// Validar parámetro idruta
+if (!isset($_GET['idruta']) || empty($_GET['idruta'])) {
+    // En lugar de morir en seco, mostramos un mensaje dentro del layout
+    $idruta = null;
+    $ruta   = null;
+    $reportes = [];
+    $errorMsg = "Ruta no válida. Falta el parámetro idruta.";
+} else {
+    $idruta = (int) $_GET['idruta'];
+    $errorMsg = null;
 
-if (!isset($_GET['idruta']) || empty($_GET['idruta'])||!isset($_GET['agente']) || empty($_GET['agente'])) {
-    die("Ruta no válida.");
+    // Obtener info de la ruta
+    $sqlRuta = "SELECT idruta, nombre, destino FROM ruta WHERE idruta = :idruta";
+    $stmtRuta = $pdo->prepare($sqlRuta);
+    $stmtRuta->execute([':idruta' => $idruta]);
+    $ruta = $stmtRuta->fetch(PDO::FETCH_ASSOC);
+
+    if (!$ruta) {
+        $reportes = [];
+        $errorMsg = "No se encontró la ruta con ID {$idruta}.";
+    } else {
+        // Obtener lista de reportes de la ruta
+        $sqlRep = "
+            SELECT 
+                rep.idreporte,
+                DATE_FORMAT(rep.fecha_reporte, '%Y-%m-%d %H:%i') AS fecha,
+                p.punto_abordaje AS parada,
+                a.nombre AS accion,
+                rep.total_personas,
+                rep.comentario
+            FROM reporte rep
+            LEFT JOIN paradas p ON rep.idparada = p.idparada
+            LEFT JOIN acciones a ON rep.idaccion = a.idaccion
+            WHERE rep.idruta = :idruta
+            ORDER BY rep.fecha_reporte DESC
+        ";
+        $stmtRep = $pdo->prepare($sqlRep);
+        $stmtRep->execute([':idruta' => $idruta]);
+        $reportes = $stmtRep->fetchAll(PDO::FETCH_ASSOC);
+    }
 }
 
-$idruta = intval($_GET['idruta']);
-$idagente = intval($_GET['agente']);
-/* Obtener nombre de la ruta */
-$sql_ruta = "SELECT nombre FROM ruta WHERE idruta = ? and idagente=?";
-$stmt = $pdo->prepare($sql_ruta);
-$stmt->execute([$idruta, $idagente]);
-$ruta = $stmt->fetchColumn();
+// Configurar variables para el layout
+$pageTitle   = $ruta ? ('Reportes - ' . $ruta['nombre']) : 'Listado de reportes';
+$currentPage = 'reporte_listado';
 
-if (!$ruta) {
-    die("Ruta no encontrada.");
-}
-
-/* Obtener los reportes */
-$sql = "
-    SELECT r.idreporte,
-           r.fecha_reporte AS fecha,
-           r.total_personas,
-           r.comentario,
-           a.nombre AS accion,
-           p.punto_abordaje AS parada,
-           ag.nombre AS agente
-    FROM reporte r
-    LEFT JOIN acciones a ON a.idaccion = r.idaccion
-    LEFT JOIN paradas p ON p.idparada = r.idparada
-    LEFT JOIN agente ag ON ag.idagente = r.idagente
-    WHERE r.idruta = ? and r.idagente=?
-    ORDER BY r.fecha_reporte DESC, r.idreporte DESC
-";
-
-$stmt = $pdo->prepare($sql);
-$stmt->execute([$idruta, $idagente]);
-$reportes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+require __DIR__ . '/../templates/header.php';
 ?>
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Reportes - <?php echo htmlspecialchars($ruta); ?></title>
-    <style>
-        body { font-family: Arial; padding: 20px; }
-        h2 { margin-bottom: 20px; }
-        table { border-collapse: collapse; width: 100%; margin-top:20px; }
-        table, th, td { border: 1px solid #ccc; }
-        th, td { padding: 10px; text-align: left; }
-        th { background-color: #f4f4f4; }
-        .btn {
-            padding: 8px 15px;
-            background: #4CAF50;
-            color: white;
-            text-decoration: none;
-            border-radius: 4px;
-            margin-right: 10px;
-        }
-        .btn-secondary {
-            background: #2196F3;
-        }
-    </style>
-</head>
-<body>
 
-<h2>Reportes para la Ruta: <strong><?php echo htmlspecialchars($ruta); ?></strong></h2>
+<!-- Content Header -->
+<section class="content-header">
+  <div class="container-fluid">
+    <div class="row mb-2">
+      <div class="col-sm-6">
+        <h1>Listado de reportes</h1>
+        <?php if ($ruta): ?>
+          <p class="text-muted mb-0">
+            Ruta: <strong><?= htmlspecialchars($ruta['nombre']) ?></strong>
+            <?php if (!empty($ruta['destino'])): ?>
+              &mdash; Destino: <strong><?= htmlspecialchars($ruta['destino']) ?></strong>
+            <?php endif; ?>
+          </p>
+        <?php endif; ?>
+      </div>
+      <div class="col-sm-6 text-right">
+        <a href="<?= BASE_URL ?>/dashboard/dashboard_rutas.php" class="btn btn-sm btn-secondary mt-2">
+          <i class="fas fa-arrow-left mr-1"></i> Volver al dashboard de rutas
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
 
-<div>
-    <a href="index.php?idruta=<?php echo $idruta; ?>&idagente=<?php echo $idagente; ?>" class="btn">
-        Crear Nuevo Registro
-    </a>
+<!-- Main content -->
+<section class="content">
+  <div class="container-fluid">
 
-    <!-- <a href="../reporte/index.php" class="btn btn-secondary">
-        Volver al Inicio
-    </a> -->
-</div>
+    <?php if ($errorMsg): ?>
+      <div class="alert alert-danger">
+        <?= htmlspecialchars($errorMsg) ?>
+      </div>
+    <?php else: ?>
 
-<?php if (empty($reportes)): ?>
-    <p>No hay reportes registrados para esta ruta.</p>
-<?php else: ?>
-<table>
-    <thead>
-        <tr>
-            <th>ID</th>
-            <th>Fecha</th>
-            <th>Parada</th>
-            <th>Acción</th>
-            <th>Personas</th>
-            <th>Comentario</th>
-            <th>Agente</th>
-        </tr>
-    </thead>
-    <tbody>
-        <?php foreach ($reportes as $r): ?>
-        <tr>
-            <td><?php echo $r['idreporte']; ?></td>
-            <td><?php echo $r['fecha']; ?></td>
-            <td><?php echo htmlspecialchars($r['parada'] ?? ''); ?></td>
-            <td><?php echo htmlspecialchars($r['accion'] ?? ''); ?></td>
-            <td><?php echo $r['total_personas']; ?></td>
-            <td><?php echo htmlspecialchars($r['comentario']); ?></td>
-            <td><?php echo htmlspecialchars($r['agente'] ?? ''); ?></td>
-        </tr>
-        <?php endforeach; ?>
-    </tbody>
-</table>
-<?php endif; ?>
+      <div class="card">
+        <div class="card-header">
+          <h3 class="card-title">
+            Reportes de la ruta #<?= (int)$ruta['idruta'] ?>
+          </h3>
+          <div class="card-tools">
+            <span class="badge badge-primary">
+              Total: <?= count($reportes) ?> reporte(s)
+            </span>
+          </div>
+        </div>
+        <div class="card-body table-responsive p-0">
+          <?php if (empty($reportes)): ?>
+            <div class="p-3">
+              <em>No hay reportes registrados para esta ruta.</em>
+            </div>
+          <?php else: ?>
+            <table class="table table-striped table-hover table-sm mb-0">
+              <thead class="thead-light">
+                <tr>
+                  <th>#</th>
+                  <th>ID Reporte</th>
+                  <th>Fecha</th>
+                  <th>Parada</th>
+                  <th>Acción</th>
+                  <th>Personas</th>
+                  <th>Comentario</th>
+                </tr>
+              </thead>
+              <tbody>
+                <?php foreach ($reportes as $idx => $r): ?>
+                  <tr>
+                    <td><?= $idx + 1 ?></td>
+                    <td><?= (int)$r['idreporte'] ?></td>
+                    <td><?= htmlspecialchars($r['fecha']) ?></td>
+                    <td><?= htmlspecialchars($r['parada'] ?? '') ?></td>
+                    <td><?= htmlspecialchars($r['accion'] ?? '') ?></td>
+                    <td><?= (int)$r['total_personas'] ?></td>
+                    <td><?= htmlspecialchars($r['comentario'] ?? '') ?></td>
+                  </tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table>
+          <?php endif; ?>
+        </div>
+      </div>
 
-</body>
-</html>
+    <?php endif; ?>
+
+  </div><!-- /.container-fluid -->
+</section>
+
+<?php
+require __DIR__ . '/../templates/footer.php';

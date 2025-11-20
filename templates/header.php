@@ -1,24 +1,47 @@
+<?php
+// templates/header.php
+
+// Cargar configuración global
+require_once __DIR__ . '/../includes/config.php';
+
+// Título por defecto si la página no define $pageTitle
+if (!isset($pageTitle)) {
+    $pageTitle = 'Sistema de Transporte';
+}
+?>
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title><?= $title ?? 'Dashboard' ?></title>
+    <meta charset="utf-8">
+    <title><?= htmlspecialchars($pageTitle) ?></title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
 
-  <!-- Google Font -->
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:300,400,400i,700&display=fallback">
+    <!-- Bootstrap 4.6.2 -->
+    <link rel="stylesheet" href="<?= BASE_URL ?>/dist/bootstrap-4.6.2/css/bootstrap.min.css">
 
-  <!-- Mantengo rutas EXACTAS -->
-  <link rel="stylesheet" href="../plugins/fontawesome-free/css/all.min.css">
-  <link rel="stylesheet" href="https://code.ionicframework.com/ionicons/2.0.1/css/ionicons.min.css">
-  <link rel="stylesheet" href="../plugins/tempusdominus-bootstrap-4/css/tempusdominus-bootstrap-4.min.css">
-  <link rel="stylesheet" href="../plugins/icheck-bootstrap/icheck-bootstrap.min.css">
-  <link rel="stylesheet" href="../plugins/jqvmap/jqvmap.min.css">
-  <link rel="stylesheet" href="../dist/css/adminlte.min.css">
-  <link rel="stylesheet" href="../plugins/overlayScrollbars/css/OverlayScrollbars.min.css">
-  <link rel="stylesheet" href="../plugins/daterangepicker/daterangepicker.css">
-  <link rel="stylesheet" href="../plugins/summernote/summernote-bs4.min.css">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="<?= BASE_URL ?>/dist/fontawesome/css/fontawesome.css">
+    <!-- Si tienes all.min.css también -->
+    <!-- <link rel="stylesheet" href="<?= BASE_URL ?>/dist/fontawesome/css/all.min.css"> -->
+
+    <!-- AdminLTE 3.2.0 -->
+    <link rel="stylesheet" href="<?= BASE_URL ?>/dist/AdminLTE-3.2.0/dist/css/adminlte.min.css">
+
+    <!-- Estilos personalizados -->
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/admin.css">
+
+    <!-- Apache ECharts (CDN) -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js"></script>
 </head>
 
 <body class="hold-transition sidebar-mini layout-fixed">
 <div class="wrapper">
+
+<?php
+// Barra superior y menú lateral
+include __DIR__ . '/navbar.php';
+include __DIR__ . '/sidebar.php';
+?>
+
+<!-- Contenedor principal del contenido -->
+<div class="content-wrapper">

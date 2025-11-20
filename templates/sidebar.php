@@ -1,31 +1,116 @@
-<aside class="main-sidebar sidebar-dark-primary elevation-4">
+<?php
+// templates/sidebar.php
+// BASE_URL ya viene desde header.php (config.php)
 
-  <a href="../index.php" class="brand-link">
-    <img src="../dist/img/AdminLTELogo.png" class="brand-image img-circle elevation-3">
-    <span class="brand-text font-weight-light">AdminLTE 3</span>
+// Para resaltar el ítem activo en el menú
+// En cada página puedes definir, por ejemplo:
+//   $currentPage = 'dashboard_global';
+if (!isset($currentPage)) {
+    $currentPage = '';
+}
+?>
+<!-- Main Sidebar Container -->
+<aside class="main-sidebar sidebar-dark-primary elevation-4">
+  <!-- Brand Logo -->
+  <a href="<?= BASE_URL ?>/dashboard/dashboard_global.php" class="brand-link">
+    <span class="brand-text font-weight-light">Transporte DI</span>
   </a>
 
+  <!-- Sidebar -->
   <div class="sidebar">
 
-    <div class="user-panel mt-3 pb-3 mb-3 d-flex">
-      <div class="image">
-        <img src="../dist/img/user2-160x160.jpg" class="img-circle elevation-2">
-      </div>
-      <div class="info">
-        <a href="#" class="d-block">Usuario</a>
-      </div>
-    </div>
-
+    <!-- Sidebar Menu -->
     <nav class="mt-2">
-      <ul class="nav nav-pills nav-sidebar flex-column">
-        <li class="nav-item">
-          <a href="../pages/dashboard.php" class="nav-link active">
+      <ul class="nav nav-pills nav-sidebar flex-column"
+          data-widget="treeview" role="menu" data-accordion="false">
+
+        <!-- DASHBOARD -->
+        <li class="nav-item has-treeview <?= in_array($currentPage, ['dashboard_global','dashboard_rutas']) ? 'menu-open' : '' ?>">
+          <a href="#" class="nav-link <?= in_array($currentPage, ['dashboard_global','dashboard_rutas']) ? 'active' : '' ?>">
             <i class="nav-icon fas fa-tachometer-alt"></i>
-            <p>Dashboard</p>
+            <p>
+              Dashboard
+              <i class="right fas fa-angle-left"></i>
+            </p>
+          </a>
+          <ul class="nav nav-treeview">
+            <li class="nav-item">
+              <a href="<?= BASE_URL ?>/dashboard/dashboard_global.php"
+                 class="nav-link <?= $currentPage === 'dashboard_global' ? 'active' : '' ?>">
+                <i class="far fa-circle nav-icon"></i>
+                <p>Dashboard Global</p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="<?= BASE_URL ?>/dashboard/dashboard_rutas.php"
+                 class="nav-link <?= $currentPage === 'dashboard_rutas' ? 'active' : '' ?>">
+                <i class="far fa-circle nav-icon"></i>
+                <p>Dashboard de Rutas</p>
+              </a>
+            </li>
+          </ul>
+        </li>
+
+        <!-- OPERACIÓN EN RUTA -->
+        <li class="nav-item has-treeview <?= in_array($currentPage, ['monitoreo','monitoreo_listado']) ? 'menu-open' : '' ?>">
+          <a href="#" class="nav-link <?= in_array($currentPage, ['monitoreo','monitoreo_listado']) ? 'active' : '' ?>">
+            <i class="nav-icon fas fa-bus-alt"></i>
+            <p>
+              Operación en Ruta
+              <i class="right fas fa-angle-left"></i>
+            </p>
+          </a>
+          <ul class="nav nav-treeview">
+            <li class="nav-item">
+              <a href="<?= BASE_URL ?>/monitoreo/index.php"
+                 class="nav-link <?= $currentPage === 'monitoreo' ? 'active' : '' ?>">
+                <i class="far fa-circle nav-icon"></i>
+                <p>Monitoreo (Agentes)</p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="<?= BASE_URL ?>/monitoreo/lista_reportes.php"
+                 class="nav-link <?= $currentPage === 'monitoreo_listado' ? 'active' : '' ?>">
+                <i class="far fa-circle nav-icon"></i>
+                <p>Reportes del agente</p>
+              </a>
+            </li>
+          </ul>
+        </li>
+
+        <!-- REPORTES / ANÁLISIS -->
+        <li class="nav-item">
+          <a href="<?= BASE_URL ?>/reporte/lista_reportes.php"
+             class="nav-link <?= $currentPage === 'reporte_listado' ? 'active' : '' ?>">
+            <i class="nav-icon fas fa-clipboard-list"></i>
+            <p>Listado de reportes</p>
           </a>
         </li>
+
+        <!-- ADMINISTRACIÓN -->
+        <li class="nav-item has-treeview <?= in_array($currentPage, ['admin_rutas','admin_ruta']) ? 'menu-open' : '' ?>">
+          <a href="#" class="nav-link <?= in_array($currentPage, ['admin_rutas','admin_ruta']) ? 'active' : '' ?>">
+            <i class="nav-icon fas fa-cogs"></i>
+            <p>
+              Administración
+              <i class="right fas fa-angle-left"></i>
+            </p>
+          </a>
+          <ul class="nav nav-treeview">
+            <li class="nav-item">
+              <a href="<?= BASE_URL ?>/admin/admin_rutas_listado.php"
+                 class="nav-link <?= $currentPage === 'admin_rutas' ? 'active' : '' ?>">
+                <i class="far fa-circle nav-icon"></i>
+                <p>Rutas</p>
+              </a>
+            </li>
+            <!-- Aquí puedes agregar más opciones de administración -->
+          </ul>
+        </li>
+
       </ul>
     </nav>
-
+    <!-- /.sidebar-menu -->
   </div>
+  <!-- /.sidebar -->
 </aside>
