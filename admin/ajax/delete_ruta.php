@@ -1,5 +1,5 @@
 <?php
-require_once "../includes/db.php";
+require_once __DIR__ . '/../../includes/db.php';
 $idruta = intval($_POST['idruta'] ?? $_POST['id'] ?? 0);
 if(!$idruta){ echo json_encode(['success'=>false]); exit; }
 $pdo->beginTransaction();

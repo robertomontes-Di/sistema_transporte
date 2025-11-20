@@ -87,7 +87,7 @@ $avance = ($totalEstimado > 0) ? round(($totalReportado / $totalEstimado) * 100)
     <meta charset="UTF-8">
     <title>Detalle Ruta <?= $ruta['nombre'] ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyC2Zm7v7BAdKaA-KAvna0q4y0lQgwvE1V4&libraries=geometry"></script>
+    <script src="https://maps.googleapis.com/maps/api/js?key=API_KEY&libraries=geometry"></script>
 </head>
 <body class="bg-light">
 <div class="container py-4">
@@ -219,44 +219,81 @@ $avance = ($totalEstimado > 0) ? round(($totalReportado / $totalEstimado) * 100)
 let paradas = <?= json_encode($paradas) ?>;
 
 function initMap() {
-    if (paradas.length === 0) return;
+    if (paradas.length < 2) return;
 
     const map = new google.maps.Map(document.getElementById('map'), {
         center: {lat: parseFloat(paradas[0].latitud), lng: parseFloat(paradas[0].longitud)},
-        zoom: 12
+        zoom: 13
     });
 
-    let coords = [];
+    // Servicio para obtener ruta
+    const directionsService = new google.maps.DirectionsService();
 
-    paradas.forEach(p => {
-        const pos = {lat: parseFloat(p.latitud), lng: parseFloat(p.longitud)};
-        coords.push(pos);
+    // Renderizador de ruta
+    const directionsRenderer = new google.maps.DirectionsRenderer({
+        map: map,
+        suppressMarkers: true   // Oculta marcadores por defecto
+    });
 
-        let color = p.atendido == 1 ? 'green' : 'red';
+    // ================================
+    // 1. Crear puntos: origen, destino, waypoint
+    // ================================
+    const origen = {
+        lat: parseFloat(paradas[0].latitud),
+        lng: parseFloat(paradas[0].longitud)
+    };
 
-        new google.maps.Marker({
-            position: pos,
-            map,
-            label: p.orden.toString(),
-            icon: {
-                url: `http://maps.google.com/mapfiles/ms/icons/${color}-dot.png`
-            }
+    const destino = {
+        lat: parseFloat(paradas[paradas.length - 1].latitud),
+        lng: parseFloat(paradas[paradas.length - 1].longitud)
+    };
+
+    // Waypoints = todas las paradas intermedias
+    let waypoints = [];
+    for (let i = 1; i < paradas.length - 1; i++) {
+        waypoints.push({
+            location: {
+                lat: parseFloat(paradas[i].latitud),
+                lng: parseFloat(paradas[i].longitud)
+            },
+            stopover: true
         });
-    });
+    }
 
-    // Polyline
-    new google.maps.Polyline({
-        path: coords,
-        geodesic: true,
-        strokeColor: '#007bff',
-        strokeOpacity: 0.9,
-        strokeWeight: 4,
-        map
+    // ================================
+    // 2. Solicitar ruta al API
+    // ================================
+    directionsService.route(
+        {
+            origin: origen,
+            destination: destino,
+            waypoints: waypoints,
+            travelMode: google.maps.TravelMode.DRIVING
+        },
+        function (result, status) {
+            if (status === google.maps.DirectionsStatus.OK) {
+                directionsRenderer.setDirections(result);
+            } else {
+                console.error("Error Directions:", status);
+            }
+        }
+    );
+
+    // ================================
+    // 3. Marcadores manuales
+    // ================================
+    paradas.forEach(p => {
+        new google.maps.Marker({
+            position: {lat: parseFloat(p.latitud), lng: parseFloat(p.longitud)},
+            map,
+            label: p.orden.toString()
+        });
     });
 }
 
 window.onload = initMap;
 </script>
+
 
 </body>
 </html>

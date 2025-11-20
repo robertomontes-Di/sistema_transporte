@@ -23,21 +23,12 @@ try {
 } catch (Exception $e) {
     $acciones = [];
 }
+$title = "Crear Registro";
+include "../templates/header.php";
+include "../templates/navbar.php";
+include "../templates/sidebar.php";
 ?>
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Crear Reporte</title>
-    <style>
-        body { font-family: Arial; padding: 20px; }
-        label { display: block; margin-top: 15px; }
-        input, select { padding: 8px; width: 300px; }
-        .btn { padding: 10px 20px; margin-top: 20px; cursor: pointer; }
-        .guardar { background-color: #4CAF50; color: white; border: none; }
-        .cancelar { background-color: #888; color: white; border: none; }
-    </style>
-</head>
-<body>
+
 
 <h2>Nuevo Reporte</h2>
 
@@ -184,5 +175,5 @@ $(function () {
 });
 </script>
 
-</body>
-</html>
+
+<?php include "../templates/footer.php"; ?>
