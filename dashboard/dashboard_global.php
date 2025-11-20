@@ -320,12 +320,14 @@ require __DIR__ . '/../templates/header.php';
 
     </div>
 
-
     <!-- Gráficas + Tabla + Mapa -->
-    <div class="row">
+    <!-- Bloque de gráficos + mapa -->
+    <div class="row mt-3">
+
+      <!-- Columna izquierda: gráficos -->
       <div class="col-lg-5">
 
-        <div class="card">
+        <div class="card mb-3">
           <div class="card-header">
             <h3 class="card-title">Total personas: Reportadas vs Estimadas</h3>
           </div>
@@ -343,14 +345,30 @@ require __DIR__ . '/../templates/header.php';
           </div>
         </div>
 
-        <div class="row mt-3">
+      </div>
+
+      <!-- Columna derecha: mapa -->
+      <div class="col-lg-7">
+        <div class="card h-100">
+          <div class="card-header">
+            <h3 class="card-title">Mapa de rutas (último punto conocido)</h3>
+          </div>
+          <div class="card-body">
+            <div id="map" style="width:100%; height:420px; border-radius:8px;"></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Tabla de últimos reportes -->
+    <div class="row mt-3">
       <div class="col-12">
         <div class="card">
           <div class="card-header">
             <h3 class="card-title">Últimos reportes</h3>
           </div>
-
-          <div class="card-body p-0">
+          <div class="card-body p-1">
             <div class="table-responsive" style="width: 100%;">
               <table id="tblReports" class="table table-striped table-sm mb-0 w-100">
                 <thead>
@@ -368,19 +386,6 @@ require __DIR__ . '/../templates/header.php';
                 <tbody></tbody>
               </table>
             </div>
-          </div>
-        </div>
-      </div>
-    </div>
-      </div>
-
-      <div class="col-lg-7">
-        <div class="card">
-          <div class="card-header">
-            <h3 class="card-title">Mapa de rutas (último punto conocido)</h3>
-          </div>
-          <div class="card-body">
-            <div id="map" style="width:100%; height:420px; border-radius:8px;"></div>
           </div>
         </div>
       </div>
