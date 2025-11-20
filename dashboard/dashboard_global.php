@@ -243,74 +243,83 @@ require __DIR__ . '/../templates/header.php';
   <div class="container-fluid">
 
     <!-- KPIs -->
-    <div class="row">
-      <div class="col-md-2">
-        <div class="small-box bg-white">
-          <div class="inner">
-            <p class="text-muted mb-1">Total personas (último reporte)</p>
-            <h3 id="kpi_total_reported">0</h3>
+        <!-- KPIs estilo tiles de color -->
+    <div class="row kpi-row">
+
+      <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+        <div class="kpi-tile kpi-teal">
+          <div class="kpi-body">
+            <div class="kpi-label">Total personas (último reporte)</div>
+            <div class="kpi-value" id="kpi_total_reported">0</div>
           </div>
-          <div class="icon">
+          <div class="kpi-icon">
             <i class="fas fa-users"></i>
           </div>
         </div>
       </div>
-      <div class="col-md-2">
-        <div class="small-box bg-white">
-          <div class="inner">
-            <p class="text-muted mb-1">Total estimado (paradas)</p>
-            <h3 id="kpi_total_estimated">0</h3>
+
+      <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+        <div class="kpi-tile kpi-cyan">
+          <div class="kpi-body">
+            <div class="kpi-label">Total estimado (paradas)</div>
+            <div class="kpi-value" id="kpi_total_estimated">0</div>
           </div>
-          <div class="icon">
+          <div class="kpi-icon">
             <i class="fas fa-user-friends"></i>
           </div>
         </div>
       </div>
-      <div class="col-md-2">
-        <div class="small-box bg-white">
-          <div class="inner">
-            <p class="text-muted mb-1">Rutas activas</p>
-            <h3 id="kpi_routes_active">0</h3>
+
+      <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+        <div class="kpi-tile kpi-blue">
+          <div class="kpi-body">
+            <div class="kpi-label">Rutas activas</div>
+            <div class="kpi-value" id="kpi_routes_active">0</div>
           </div>
-          <div class="icon">
+          <div class="kpi-icon">
             <i class="fas fa-route"></i>
           </div>
         </div>
       </div>
-      <div class="col-md-2">
-        <div class="small-box bg-white">
-          <div class="inner">
-            <p class="text-muted mb-1">Sin problema</p>
-            <h3 class="text-success" id="kpi_sin_problema">0</h3>
+
+      <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+        <div class="kpi-tile kpi-green">
+          <div class="kpi-body">
+            <div class="kpi-label">Sin problema</div>
+            <div class="kpi-value" id="kpi_sin_problema">0</div>
           </div>
-          <div class="icon">
+          <div class="kpi-icon">
             <i class="fas fa-check-circle"></i>
           </div>
         </div>
       </div>
-      <div class="col-md-2">
-        <div class="small-box bg-white">
-          <div class="inner">
-            <p class="text-muted mb-1">Inconveniente</p>
-            <h3 class="text-warning" id="kpi_inconveniente">0</h3>
+
+      <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+        <div class="kpi-tile kpi-orange">
+          <div class="kpi-body">
+            <div class="kpi-label">Inconveniente</div>
+            <div class="kpi-value" id="kpi_inconveniente">0</div>
           </div>
-          <div class="icon">
+          <div class="kpi-icon">
             <i class="fas fa-exclamation-circle"></i>
           </div>
         </div>
       </div>
-      <div class="col-md-2">
-        <div class="small-box bg-white">
-          <div class="inner">
-            <p class="text-muted mb-1">Crítico</p>
-            <h3 class="text-danger" id="kpi_critico">0</h3>
+
+      <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+        <div class="kpi-tile kpi-red">
+          <div class="kpi-body">
+            <div class="kpi-label">Crítico</div>
+            <div class="kpi-value" id="kpi_critico">0</div>
           </div>
-          <div class="icon">
+          <div class="kpi-icon">
             <i class="fas fa-exclamation-triangle"></i>
           </div>
         </div>
       </div>
+
     </div>
+
 
     <!-- Gráficas + Tabla + Mapa -->
     <div class="row">
