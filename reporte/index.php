@@ -28,13 +28,21 @@ include "../templates/header.php";
 include "../templates/navbar.php";
 include "../templates/sidebar.php";
 ?>
-
-
-<h2>Nuevo Reporte</h2>
+<main class="app-main" id="main" tabindex="-1">
+<div class="app-content">
+          <!--begin::Container-->
+          <div class="container-fluid">
+            <!--begin::Row-->
+          <div class="row g-4">
+              <div class="col-md-6">
+               <div class="card card-info card-outline mb-4">
+                <div class="card-header">
+<div class="card-title">Nuevo Reporte</div>
 
 <div id="ajaxError" style="color: #b00020; display:none; margin-bottom:12px;"></div>
 
-<form id="formReporte">
+<form id="formReporte" class="needs-validation" novalidate="">
+    <div class="card-body">
 <label for="ruta">Ruta:</label>
 <select id="ruta" name="idruta">
     <option value="">Seleccione una ruta</option>
@@ -65,13 +73,20 @@ include "../templates/sidebar.php";
 
 <label for="comentario">Comentario (opcional):</label>
 <input type="text" id="comentario" name="comentario">
-
+</div>
+<div class="card-footer">
 <button type="submit" class="btn guardar">Guardar</button>
 <button type="button" class="btn cancelar" onclick="window.location.href='../index.php'">Cancelar</button>
 <button type="button" class="btn" id="btnListaReportes" style="display:none;">Ver lista de reportes</button>
-
+</div>
 </form>
 
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+</main>
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script>
 $(function () {
