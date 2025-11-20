@@ -387,7 +387,7 @@ async function renderRecentReports(){
 let mapInstance = null;
 let markers = [];
 function colorForStatus(status){
-  if(status === 'sin_problema') return '#39ff14'; // azul
+  if(status === 'sin_problema') return '#046205'; // azul
   if(status === 'inconveniente') return '#ffa500'; // amarillo
   if(status === 'critico') return '#ff004c'; // rojo
   return '#6c757d';

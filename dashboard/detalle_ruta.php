@@ -87,7 +87,7 @@ $avance = ($totalEstimado > 0) ? round(($totalReportado / $totalEstimado) * 100)
     <meta charset="UTF-8">
     <title>Detalle Ruta <?= $ruta['nombre'] ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    <script src="https://maps.googleapis.com/maps/api/js?key=API_KEY&libraries=geometry"></script>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyC2Zm7v7BAdKaA-KAvna0q4y0lQgwvE1V4&libraries=geometry"></script>
 </head>
 <body class="bg-light">
 <div class="container py-4">
