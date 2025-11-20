@@ -36,8 +36,9 @@ if (isset($_GET['action']) && $_GET['action'] === 'ultima_ubicacion') {
 
 // Aceptar ?idruta= o ?id=
 $idruta = isset($_GET['idruta']) ? (int)$_GET['idruta'] : (int)($_GET['id'] ?? 0);
-if ($idruta <= 0) die('Ruta inválida');
-
+if ($idruta <= 0) {
+    die('Ruta inválida');
+}
 
 // ==========================
 // 1. Datos generales de ruta
@@ -60,8 +61,9 @@ $stmtRuta = $pdo->prepare($sqlRuta);
 $stmtRuta->execute([':idruta' => $idruta]);
 $ruta = $stmtRuta->fetch(PDO::FETCH_ASSOC);
 
-if (!$ruta) die('Ruta no encontrada');
-
+if (!$ruta) {
+    die('Ruta no encontrada');
+}
 
 // ==========================
 // 2. Paradas de la ruta
@@ -81,7 +83,6 @@ $sqlParadas = "
 $stmtPar = $pdo->prepare($sqlParadas);
 $stmtPar->execute([':idruta' => $idruta]);
 $paradas = $stmtPar->fetchAll(PDO::FETCH_ASSOC);
-
 
 // ==========================
 // 3. Reportes
@@ -105,26 +106,26 @@ $stmtRep = $pdo->prepare($sqlRep);
 $stmtRep->execute([':idruta' => $idruta]);
 $reportes = $stmtRep->fetchAll(PDO::FETCH_ASSOC);
 
-
 // ==========================
 // 4. Métricas
 // ==========================
-$totalEstimado = array_sum(array_column($paradas, 'estimado_personas'));
-$totalReportado = array_sum(array_column($reportes, 'total_personas'));
+$totalEstimado   = array_sum(array_column($paradas, 'estimado_personas'));
+$totalReportado  = array_sum(array_column($reportes, 'total_personas'));
 
 $avance = ($totalEstimado > 0)
     ? round(($totalReportado / $totalEstimado) * 100, 1)
     : 0.0;
 
 $capacidadBus = (int)($ruta['capacidad_bus'] ?? 0);
-$pctUsoBus = ($capacidadBus > 0)
+$pctUsoBus    = ($capacidadBus > 0)
     ? round(($totalReportado / $capacidadBus) * 100, 1)
     : null;
-
 
 // ==========================
 // 5. Datos para ECharts
 // ==========================
+
+// Timeline por evento
 $timelineData = [];
 foreach ($reportes as $r) {
     $timelineData[] = [
@@ -133,40 +134,34 @@ foreach ($reportes as $r) {
     ];
 }
 
+// Personas por parada
 $personasPorParada = [];
 foreach ($paradas as $p) {
     $personasPorParada[$p['idparada']] = [
-        'nombre'  => $p['punto_abordaje'],
-        'orden'   => (int)$p['orden'],
-        'total'   => 0,
-        'estimado'=> (int)($p['estimado_personas'] ?? 0),
+        'nombre'   => $p['punto_abordaje'],
+        'orden'    => (int)$p['orden'],
+        'total'    => 0,
+        'estimado' => (int)($p['estimado_personas'] ?? 0),
     ];
 }
 foreach ($reportes as $r) {
+    if (!isset($personasPorParada[$r['idparada']])) {
+        continue;
+    }
     $personasPorParada[$r['idparada']]['total'] += (int)$r['total_personas'];
 }
 usort($personasPorParada, fn($a, $b) => $a['orden'] <=> $b['orden']);
 
+// Paradas con coordenadas para el mapa
 $paradasMapa = array_values(array_filter($paradas, fn($p) =>
     !empty($p['latitud']) && !empty($p['longitud'])
 ));
 
+$pageTitle   = 'Detalle de Ruta';
+$currentPage = 'dashboard_rutas';
 
 require __DIR__ . '/../templates/header.php';
 ?>
-
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <title>Detalle Ruta <?= $ruta['nombre'] ?></title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyC2Zm7v7BAdKaA-KAvna0q4y0lQgwvE1V4&libraries=geometry"></script>
-</head>
-<body class="bg-light">
-<div class="container py-4">
-    <h3>Detalle de Ruta: <?= htmlspecialchars($ruta['nombre']) ?></h3>
-    <p class="text-muted">Destino: <?= htmlspecialchars($ruta['destino']) ?></p>
 
 <!-- Content Header -->
 <section class="content-header">
@@ -181,7 +176,7 @@ require __DIR__ . '/../templates/header.php';
         </p>
       </div>
       <div class="col-sm-4 text-right">
-        <a href="<?= BASE_URL ?>/dashboard/dashboard_rutas.php" class="btn btn-sm btn-secondary mt-2">
+        <a href="<?= BASE_URL ?>/dashboard/dashboard_rutas.php" class="btn btn-sm btn-secondary mt-3">
           <i class="fas fa-arrow-left mr-1"></i> Volver al Dashboard de Rutas
         </a>
       </div>
@@ -257,7 +252,7 @@ require __DIR__ . '/../templates/header.php';
         <!-- Personas por parada -->
         <div class="card">
           <div class="card-header">
-            <h3 class="card-title">Personas por parada (suma)</h3>
+            <h3 class="card-title">Personas por parada (suma vs estimado)</h3>
           </div>
           <div class="card-body">
             <div id="chartParadas" style="width:100%;height:280px;"></div>
@@ -305,7 +300,7 @@ require __DIR__ . '/../templates/header.php';
                   <?php foreach ($reportes as $r): ?>
                     <tr>
                       <td><?= htmlspecialchars($r['fecha_reporte']) ?></td>
-                      <td><?= htmlspecialchars($r['punto_abordaje'] ?? 'Parada #' . $r['idparada']) ?></td>
+                      <td><?= htmlspecialchars($r['punto_abordaje'] ?? ('Parada #' . $r['idparada'])) ?></td>
                       <td><?= htmlspecialchars($r['accion'] ?? '') ?></td>
                       <td><?= (int)$r['total_personas'] ?></td>
                       <td><?= htmlspecialchars($r['comentario'] ?? '') ?></td>
@@ -322,46 +317,152 @@ require __DIR__ . '/../templates/header.php';
   </div><!-- /.container-fluid -->
 </section>
 
-<!-- Scripts específicos de esta página -->
-<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyC2Zm7v7BAdKaA-KAvna0q4y0lQgwvE1V4"></script>
+<!-- Google Maps (solo una vez en esta página) -->
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyC2Zm7v7BAdKaA-KAvna0q4y0lQgwvE1V4&libraries=geometry"></script>
+
 <script>
 const timelineData = <?= json_encode($timelineData) ?>;
-const paradasData  = <?= json_encode($personasPorParada) ?>;
+const paradasData  = <?= json_encode(array_values($personasPorParada)) ?>;
 const paradasMapa  = <?= json_encode($paradasMapa) ?>;
-const idruta       = <?= $idruta ?>;
+const idruta       = <?= (int)$idruta ?>;
 
 let map;
 let busMarker = null;
 
 // -------------------------
-// ACTUALIZAR MARKER DEL BUS
+// ECHARTS: TIMELINE
 // -------------------------
-function updateBusPosition(lat, lng) {
-    if (!busMarker) {
-        busMarker = new google.maps.Marker({
-            map,
-            title: "Autobús",
-            icon: {
-                url: "../img/bus.png",
-                scaledSize: new google.maps.Size(40, 40)
-            }
-        });
-    }
-    busMarker.setPosition({ lat: parseFloat(lat), lng: parseFloat(lng) });
+function buildTimelineChart() {
+  const el = document.getElementById('chartTimeline');
+  if (!el || typeof echarts === 'undefined') return;
+
+  const chart = echarts.init(el);
+
+  const labels = timelineData.map(d => d.fecha);
+  const values = timelineData.map(d => d.total);
+
+  const option = {
+    tooltip: {
+      trigger: 'axis'
+    },
+    xAxis: {
+      type: 'category',
+      data: labels,
+      axisLabel: {
+        rotate: 45
+      }
+    },
+    yAxis: {
+      type: 'value',
+      min: 0
+    },
+    series: [{
+      name: 'Personas',
+      type: 'line',
+      smooth: true,
+      data: values,
+      label: {
+        show: true,
+        position: 'top'
+      }
+    }]
+  };
+
+  chart.setOption(option);
+  window.addEventListener('resize', () => chart.resize());
 }
 
+// -------------------------
+// ECHARTS: PERSONAS POR PARADA
+// -------------------------
+function buildParadasChart() {
+  const el = document.getElementById('chartParadas');
+  if (!el || typeof echarts === 'undefined') return;
+
+  const chart = echarts.init(el);
+
+  const labels   = paradasData.map(p => p.nombre);
+  const totales  = paradasData.map(p => p.total);
+  const estimado = paradasData.map(p => p.estimado);
+
+  const option = {
+    tooltip: {
+      trigger: 'axis'
+    },
+    legend: {
+      bottom: 0
+    },
+    grid: {
+      top: 30,
+      left: 40,
+      right: 10,
+      bottom: 60
+    },
+    xAxis: {
+      type: 'category',
+      data: labels,
+      axisLabel: {
+        interval: 0,
+        rotate: 45
+      }
+    },
+    yAxis: {
+      type: 'value',
+      min: 0
+    },
+    series: [
+      {
+        name: 'Reportado',
+        type: 'bar',
+        data: totales
+      },
+      {
+        name: 'Estimado',
+        type: 'bar',
+        data: estimado
+      }
+    ]
+  };
+
+  chart.setOption(option);
+  window.addEventListener('resize', () => chart.resize());
+}
+
+// -------------------------
+// MARCADOR DEL BUS
+// -------------------------
+function updateBusPosition(lat, lng) {
+  if (!map) return;
+
+  const pos = { lat: parseFloat(lat), lng: parseFloat(lng) };
+
+  if (!busMarker) {
+    busMarker = new google.maps.Marker({
+      map,
+      position: pos,
+      title: "Autobús",
+      icon: {
+        url: "<?= BASE_URL ?>/img/bus.png",
+        scaledSize: new google.maps.Size(40, 40)
+      }
+    });
+  } else {
+    busMarker.setPosition(pos);
+  }
+}
 
 // -------------------------
 // CARGAR ÚLTIMA UBICACIÓN
 // -------------------------
 function fetchUltimaUbicacion() {
-    fetch(`detalle_ruta.php?action=ultima_ubicacion&idruta=${idruta}`)
-        .then(r => r.json())
-        .then(data => {
-            if (data.lat && data.lng) {
-                updateBusPosition(data.lat, data.lng);
-            }
-        });
+  fetch(`detalle_ruta.php?action=ultima_ubicacion&idruta=${idruta}`)
+    .then(r => r.json())
+    .then(data => {
+      if (data && data.lat && data.lng) {
+        updateBusPosition(data.lat, data.lng);
+      }
+    })
+    .catch(() => {});
 }
 
 // ----------------------
@@ -372,6 +473,7 @@ function initMap(){
   if (!mapEl) return;
 
   let center = {lat: 13.6929, lng: -89.2182};
+
   if (paradasMapa.length > 0) {
     center = {
       lat: parseFloat(paradasMapa[0].latitud),
@@ -415,24 +517,20 @@ function initMap(){
     map.fitBounds(bounds);
   }
 
-  // primera carga
+  // primera carga y refresco cada minuto
   fetchUltimaUbicacion();
-
-  // actualizar cada minuto
   setInterval(fetchUltimaUbicacion, 60000);
 }
-
 
 // ----------------------
 // INICIO
 // ----------------------
 document.addEventListener('DOMContentLoaded', () => {
-    buildTimelineChart();
-    buildParadasChart();
-    initMap();
+  buildTimelineChart();
+  buildParadasChart();
+  initMap();
 });
 </script>
-
 
 <?php
 require __DIR__ . '/../templates/footer.php';
