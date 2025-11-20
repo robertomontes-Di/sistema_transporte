@@ -39,10 +39,10 @@ if ($action) {
             $routes_active = (int)$pdo->query($sql_routes_active)->fetchColumn();
 
             // 4) conteo de rutas por estado, usando el ÚLTIMO reporte por ruta
-            //    y la convención de tu compañero:
-            //    tipo_accion = normal       → sin_problema
+            //    Convención:
+            //    tipo_accion = normal        → sin_problema
             //    tipo_accion = inconveniente → inconveniente
-            //    tipo_accion = critico      → critico
+            //    tipo_accion = critico       → critico
             $sql_status_counts = "
                 SELECT
                     SUM(
@@ -133,7 +133,6 @@ if ($action) {
 
             $out = [];
             foreach ($rows as $row) {
-                // Clasificación de estado compatible con backend de tu compañero
                 // tipo_accion = critico → 'critico'
                 // tipo_accion = normal o idaccion NULL → 'sin_problema'
                 // otro (inconveniente, etc.) → 'inconveniente'
@@ -335,13 +334,16 @@ require __DIR__ . '/../templates/header.php';
           </div>
         </div>
 
+        <div class="row mt-3">
+      <div class="col-12">
         <div class="card">
           <div class="card-header">
             <h3 class="card-title">Últimos reportes</h3>
           </div>
-          <div class="card-body p-1">
-            <div class="table-responsive">
-              <table id="tblReports" class="table table-striped table-md mb-0">
+
+          <div class="card-body p-0">
+            <div class="table-responsive" style="width: 100%;">
+              <table id="tblReports" class="table table-striped table-sm mb-0 w-100">
                 <thead>
                   <tr>
                     <th>#</th>
@@ -359,7 +361,8 @@ require __DIR__ . '/../templates/header.php';
             </div>
           </div>
         </div>
-
+      </div>
+    </div>
       </div>
 
       <div class="col-lg-7">
@@ -530,11 +533,13 @@ async function renderRecentReports(){
 let mapInstance = null;
 let markers = [];
 function colorForStatus(status){
-  if(status === 'sin_problema') return '#39ff14';   // verde fosfo
+  // Colores unificados (sin conflictos de merge)
+  if(status === 'sin_problema')  return '#046205'; // verde oscuro
   if(status === 'inconveniente') return '#ffa500'; // naranja
-  if(status === 'critico') return '#ff004c';       // rojo fuerte
+  if(status === 'critico')       return '#ff004c'; // rojo
   return '#6c757d';
 }
+
 async function renderMap(){
   try {
     const pts = await fetchMapData();

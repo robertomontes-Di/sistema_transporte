@@ -146,6 +146,18 @@ $currentPage = 'dashboard_rutas';
 
 require __DIR__ . '/../templates/header.php';
 ?>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Detalle Ruta <?= $ruta['nombre'] ?></title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyC2Zm7v7BAdKaA-KAvna0q4y0lQgwvE1V4&libraries=geometry"></script>
+</head>
+<body class="bg-light">
+<div class="container py-4">
+    <h3>Detalle de Ruta: <?= htmlspecialchars($ruta['nombre']) ?></h3>
+    <p class="text-muted">Destino: <?= htmlspecialchars($ruta['destino']) ?></p>
 
 <!-- Content Header -->
 <section class="content-header">
