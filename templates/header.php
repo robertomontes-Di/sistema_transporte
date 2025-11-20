@@ -1,7 +1,7 @@
 <?php
 // templates/header.php
 
-// Cargar configuración global
+// Cargar configuración global (debe definir BASE_URL)
 require_once __DIR__ . '/../includes/config.php';
 
 // Título por defecto si la página no define $pageTitle
@@ -16,19 +16,35 @@ if (!isset($pageTitle)) {
     <title><?= htmlspecialchars($pageTitle) ?></title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
 
-    <!-- Bootstrap 4.6.2 -->
-    <link rel="stylesheet" href="<?= BASE_URL ?>/dist/bootstrap-4.6.2/css/bootstrap.min.css">
+    <!-- ===========================
+         CSS PRINCIPALES (CDN)
+    ============================ -->
 
-    <!-- Font Awesome -->
-    <link rel="stylesheet" href="<?= BASE_URL ?>/dist/fontawesome/css/fontawesome.css">
-    <!-- Si tienes all.min.css también -->
-    <!-- <link rel="stylesheet" href="<?= BASE_URL ?>/dist/fontawesome/css/all.min.css"> -->
+    <!-- Bootstrap 4.6.2 -->
+    <link rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
+
+    <!-- Font Awesome 5.15.4 -->
+    <link rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+
+    <!-- OverlayScrollbars (recomendado por AdminLTE) -->
+    <link rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/overlayscrollbars/css/OverlayScrollbars.min.css">
 
     <!-- AdminLTE 3.2.0 -->
-    <link rel="stylesheet" href="<?= BASE_URL ?>/dist/AdminLTE-3.2.0/dist/css/adminlte.min.css">
+    <link rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/css/adminlte.min.css">
 
     <!-- Estilos personalizados -->
     <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/admin.css">
+
+    <!-- ===========================
+         JS GLOBAL EN <head>
+    ============================ -->
+
+    <!-- jQuery (necesario ANTES de DataTables y scripts de página) -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 
     <!-- Apache ECharts (CDN) -->
     <script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js"></script>

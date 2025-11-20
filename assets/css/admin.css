@@ -1,1 +1,81 @@
 /* Admin CSS placeholder */
+/* ===========================
+   Tiles KPI estilo dashboard de resumen
+   =========================== */
+
+.kpi-row {
+  margin-bottom: 1rem;
+}
+
+.kpi-tile {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-radius: 14px;
+  padding: 14px 18px;
+  color: #fff;
+  box-shadow: 0 6px 12px rgba(15, 23, 42, 0.18);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.kpi-tile:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.22);
+}
+
+.kpi-body {
+  max-width: 70%;
+}
+
+.kpi-label {
+  font-size: 0.9rem;
+  font-weight: 500;
+  opacity: 0.9;
+  margin-bottom: 4px;
+}
+
+.kpi-value {
+  font-size: 1.8rem;
+  font-weight: 700;
+}
+
+/* Icono a la derecha tipo burbuja */
+.kpi-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.kpi-icon i {
+  font-size: 26px;
+  opacity: 0.9;
+}
+
+/* Paleta de colores (similar al ejemplo) */
+.kpi-teal {
+  background: linear-gradient(135deg, #00838f, #00acc1);
+}
+
+.kpi-cyan {
+  background: linear-gradient(135deg, #0077b6, #00b4d8);
+}
+
+.kpi-blue {
+  background: linear-gradient(135deg, #3949ab, #5c6bc0);
+}
+
+.kpi-green {
+  background: linear-gradient(135deg, #2e7d32, #43a047);
+}
+
+.kpi-orange {
+  background: linear-gradient(135deg, #f9a825, #ffb300);
+}
+
+.kpi-red {
+  background: linear-gradient(135deg, #c62828, #e53935);
+}

@@ -243,80 +243,91 @@ require __DIR__ . '/../templates/header.php';
   <div class="container-fluid">
 
     <!-- KPIs -->
-    <div class="row">
-      <div class="col-md-2">
-        <div class="small-box bg-white">
-          <div class="inner">
-            <p class="text-muted mb-1">Total personas (último reporte)</p>
-            <h3 id="kpi_total_reported">0</h3>
+        <!-- KPIs estilo tiles de color -->
+    <div class="row kpi-row">
+
+      <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+        <div class="kpi-tile kpi-teal">
+          <div class="kpi-body">
+            <div class="kpi-label">Total personas (último reporte)</div>
+            <div class="kpi-value" id="kpi_total_reported">0</div>
           </div>
-          <div class="icon">
+          <div class="kpi-icon">
             <i class="fas fa-users"></i>
           </div>
         </div>
       </div>
-      <div class="col-md-2">
-        <div class="small-box bg-white">
-          <div class="inner">
-            <p class="text-muted mb-1">Total estimado (paradas)</p>
-            <h3 id="kpi_total_estimated">0</h3>
+
+      <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+        <div class="kpi-tile kpi-cyan">
+          <div class="kpi-body">
+            <div class="kpi-label">Total estimado (paradas)</div>
+            <div class="kpi-value" id="kpi_total_estimated">0</div>
           </div>
-          <div class="icon">
+          <div class="kpi-icon">
             <i class="fas fa-user-friends"></i>
           </div>
         </div>
       </div>
-      <div class="col-md-2">
-        <div class="small-box bg-white">
-          <div class="inner">
-            <p class="text-muted mb-1">Rutas activas</p>
-            <h3 id="kpi_routes_active">0</h3>
+
+      <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+        <div class="kpi-tile kpi-blue">
+          <div class="kpi-body">
+            <div class="kpi-label">Rutas activas</div>
+            <div class="kpi-value" id="kpi_routes_active">0</div>
           </div>
-          <div class="icon">
+          <div class="kpi-icon">
             <i class="fas fa-route"></i>
           </div>
         </div>
       </div>
-      <div class="col-md-2">
-        <div class="small-box bg-white">
-          <div class="inner">
-            <p class="text-muted mb-1">Sin problema</p>
-            <h3 class="text-success" id="kpi_sin_problema">0</h3>
+
+      <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+        <div class="kpi-tile kpi-green">
+          <div class="kpi-body">
+            <div class="kpi-label">Sin problema</div>
+            <div class="kpi-value" id="kpi_sin_problema">0</div>
           </div>
-          <div class="icon">
+          <div class="kpi-icon">
             <i class="fas fa-check-circle"></i>
           </div>
         </div>
       </div>
-      <div class="col-md-2">
-        <div class="small-box bg-white">
-          <div class="inner">
-            <p class="text-muted mb-1">Inconveniente</p>
-            <h3 class="text-warning" id="kpi_inconveniente">0</h3>
+
+      <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+        <div class="kpi-tile kpi-orange">
+          <div class="kpi-body">
+            <div class="kpi-label">Inconveniente</div>
+            <div class="kpi-value" id="kpi_inconveniente">0</div>
           </div>
-          <div class="icon">
+          <div class="kpi-icon">
             <i class="fas fa-exclamation-circle"></i>
           </div>
         </div>
       </div>
-      <div class="col-md-2">
-        <div class="small-box bg-white">
-          <div class="inner">
-            <p class="text-muted mb-1">Crítico</p>
-            <h3 class="text-danger" id="kpi_critico">0</h3>
+
+      <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+        <div class="kpi-tile kpi-red">
+          <div class="kpi-body">
+            <div class="kpi-label">Crítico</div>
+            <div class="kpi-value" id="kpi_critico">0</div>
           </div>
-          <div class="icon">
+          <div class="kpi-icon">
             <i class="fas fa-exclamation-triangle"></i>
           </div>
         </div>
       </div>
+
     </div>
 
     <!-- Gráficas + Tabla + Mapa -->
-    <div class="row">
+    <!-- Bloque de gráficos + mapa -->
+    <div class="row mt-3">
+
+      <!-- Columna izquierda: gráficos -->
       <div class="col-lg-5">
 
-        <div class="card">
+        <div class="card mb-3">
           <div class="card-header">
             <h3 class="card-title">Total personas: Reportadas vs Estimadas</h3>
           </div>
@@ -334,14 +345,30 @@ require __DIR__ . '/../templates/header.php';
           </div>
         </div>
 
-        <div class="row mt-3">
+      </div>
+
+      <!-- Columna derecha: mapa -->
+      <div class="col-lg-7">
+        <div class="card h-100">
+          <div class="card-header">
+            <h3 class="card-title">Mapa de rutas (último punto conocido)</h3>
+          </div>
+          <div class="card-body">
+            <div id="map" style="width:100%; height:420px; border-radius:8px;"></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Tabla de últimos reportes -->
+    <div class="row mt-3">
       <div class="col-12">
         <div class="card">
           <div class="card-header">
             <h3 class="card-title">Últimos reportes</h3>
           </div>
-
-          <div class="card-body p-0">
+          <div class="card-body p-1">
             <div class="table-responsive" style="width: 100%;">
               <table id="tblReports" class="table table-striped table-sm mb-0 w-100">
                 <thead>
@@ -359,19 +386,6 @@ require __DIR__ . '/../templates/header.php';
                 <tbody></tbody>
               </table>
             </div>
-          </div>
-        </div>
-      </div>
-    </div>
-      </div>
-
-      <div class="col-lg-7">
-        <div class="card">
-          <div class="card-header">
-            <h3 class="card-title">Mapa de rutas (último punto conocido)</h3>
-          </div>
-          <div class="card-body">
-            <div id="map" style="width:100%; height:420px; border-radius:8px;"></div>
           </div>
         </div>
       </div>
