@@ -1,24 +1,30 @@
-</div>
+<?php
+// templates/footer.php
+?>
 
-<!-- Mantengo todas las rutas EXACTAS -->
-<script src="../plugins/jquery/jquery.min.js"></script>
-<script src="../plugins/jquery-ui/jquery-ui.min.js"></script>
-<script> $.widget.bridge('uibutton', $.ui.button); </script>
-<script src="../plugins/bootstrap/js/bootstrap.bundle.min.js"></script>
-<script src="../plugins/chart.js/Chart.min.js"></script>
-<script src="../plugins/sparklines/sparkline.js"></script>
-<script src="../plugins/jqvmap/jquery.vmap.min.js"></script>
-<script src="../plugins/jqvmap/maps/jquery.vmap.usa.js"></script>
-<script src="../plugins/jquery-knob/jquery.knob.min.js"></script>
-<script src="../plugins/moment/moment.min.js"></script>
-<script src="../plugins/daterangepicker/daterangepicker.js"></script>
-<script src="../plugins/tempusdominus-bootstrap-4/js/tempusdominus-bootstrap-4.min.js"></script>
-<script src="../plugins/summernote/summernote-bs4.min.js"></script>
-<script src="../plugins/overlayScrollbars/js/jquery.overlayScrollbars.min.js"></script>
+</div> <!-- /.content-wrapper -->
 
-<script src="../dist/js/adminlte.js"></script>
-<script src="../dist/js/demo.js"></script>
-<script src="../dist/js/pages/dashboard.js"></script>
+<!-- Main Footer -->
+<footer class="main-footer">
+  <div class="float-right d-none d-sm-inline">
+    Centro de Logística
+  </div>
+  <strong>&copy; <?= date('Y') ?> Dirección de Integración.</strong> Todos los derechos reservados.
+</footer>
+
+</div> <!-- ./wrapper -->
+
+<!-- jQuery (desde CDN para evitar problemas) -->
+<script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+
+<!-- Bootstrap 4.6.2 JS -->
+<script src="<?= BASE_URL ?>/dist/bootstrap-4.6.2/js/bootstrap.min.js"></script>
+
+<!-- AdminLTE 3.2.0 JS -->
+<script src="<?= BASE_URL ?>/dist/AdminLTE-3.2.0/dist/js/adminlte.min.js"></script>
+
+<!-- Scripts globales opcionales -->
+<!-- <script src="<?= BASE_URL ?>/assets/js/app.js"></script> -->
 
 </body>
 </html>
