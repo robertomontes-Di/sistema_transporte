@@ -65,20 +65,62 @@ $reportes = $stmt->fetchAll(PDO::FETCH_ASSOC);
             background: #2196F3;
         }
     </style>
+    <script>
+document.getElementById("btnUbicacion").addEventListener("click", () => {
+
+    if (!navigator.geolocation) {
+        alert("La geolocalización no es soportada.");
+        return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+        (pos) => {
+            const lat = pos.coords.latitude;
+            const lng = pos.coords.longitude;
+
+            // Datos adicionales si quieres
+            const idusuario = 1; // traer de sesión
+            const idruta = 4;    // o desde la URL
+
+            fetch("guardar_ubicacion.php", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: `lat=${lat}&lng=${lng}&idusuario=${idusuario}&idruta=${idruta}`
+            })
+            .then(r => r.json())
+            .then(res => {
+                if (res.success) {
+                    alert("Ubicación guardada correctamente");
+                } else {
+                    alert("Error: " + res.msg);
+                }
+            });
+        },
+        (error) => {
+            alert("No se pudo obtener la ubicación: " + error.message);
+        }
+    );
+});
+</script>
+
 </head>
 <body>
 
 <h2>Reportes para la Ruta: <strong><?php echo htmlspecialchars($ruta); ?></strong></h2>
 
-<div>
-    <a href="index.php?idruta=<?php echo $idruta; ?>" class="btn">
+<div class="d-flex gap-2">
+
+    <a href="index.php?idruta=<?php echo $idruta; ?>" 
+       class="btn btn-primary">
         Crear Nuevo Reporte
     </a>
 
-    <a href="../reporte/index.php" class="btn btn-secondary">
-        Volver al Inicio
-    </a>
+    <button id="btnUbicacion" class="btn btn-success">
+        Guardar mi ubicación
+    </button>
+
 </div>
+
 
 <?php if (empty($reportes)): ?>
     <p>No hay reportes registrados para esta ruta.</p>

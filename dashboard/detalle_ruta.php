@@ -8,11 +8,36 @@ error_reporting(E_ALL);
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/config.php';
 
-// Aceptar ?idruta= o ?id= (por compatibilidad)
-$idruta = isset($_GET['idruta']) ? (int)$_GET['idruta'] : (int)($_GET['id'] ?? 0);
-if ($idruta <= 0) {
-    die('Ruta inválida');
+// -------------------------------------------------------
+// ENDPOINT INTERNO PARA OBTENER ÚLTIMA UBICACIÓN DEL BUS
+// -------------------------------------------------------
+if (isset($_GET['action']) && $_GET['action'] === 'ultima_ubicacion') {
+    header('Content-Type: application/json');
+
+    $idruta = (int)($_GET['idruta'] ?? 0);
+    if ($idruta <= 0) {
+        echo json_encode([]);
+        exit;
+    }
+
+    $sql = "SELECT lat, lng 
+            FROM ubicaciones 
+            WHERE idruta = :idruta 
+            ORDER BY fecha DESC 
+            LIMIT 1";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([':idruta' => $idruta]);
+
+    echo json_encode($stmt->fetch(PDO::FETCH_ASSOC) ?: []);
+    exit;
 }
+// -------------------------------------------------------
+
+
+// Aceptar ?idruta= o ?id=
+$idruta = isset($_GET['idruta']) ? (int)$_GET['idruta'] : (int)($_GET['id'] ?? 0);
+if ($idruta <= 0) die('Ruta inválida');
+
 
 // ==========================
 // 1. Datos generales de ruta
@@ -35,9 +60,8 @@ $stmtRuta = $pdo->prepare($sqlRuta);
 $stmtRuta->execute([':idruta' => $idruta]);
 $ruta = $stmtRuta->fetch(PDO::FETCH_ASSOC);
 
-if (!$ruta) {
-    die('Ruta no encontrada');
-}
+if (!$ruta) die('Ruta no encontrada');
+
 
 // ==========================
 // 2. Paradas de la ruta
@@ -58,8 +82,9 @@ $stmtPar = $pdo->prepare($sqlParadas);
 $stmtPar->execute([':idruta' => $idruta]);
 $paradas = $stmtPar->fetchAll(PDO::FETCH_ASSOC);
 
+
 // ==========================
-// 3. Reportes de la ruta
+// 3. Reportes
 // ==========================
 $sqlRep = "
     SELECT 
@@ -80,18 +105,12 @@ $stmtRep = $pdo->prepare($sqlRep);
 $stmtRep->execute([':idruta' => $idruta]);
 $reportes = $stmtRep->fetchAll(PDO::FETCH_ASSOC);
 
-// ==========================
-// 4. Métricas básicas
-// ==========================
-$totalEstimado  = 0;
-foreach ($paradas as $p) {
-    $totalEstimado += (int)($p['estimado_personas'] ?? 0);
-}
 
-$totalReportado = 0;
-foreach ($reportes as $r) {
-    $totalReportado += (int)($r['total_personas'] ?? 0);
-}
+// ==========================
+// 4. Métricas
+// ==========================
+$totalEstimado = array_sum(array_column($paradas, 'estimado_personas'));
+$totalReportado = array_sum(array_column($reportes, 'total_personas'));
 
 $avance = ($totalEstimado > 0)
     ? round(($totalReportado / $totalEstimado) * 100, 1)
@@ -102,11 +121,10 @@ $pctUsoBus = ($capacidadBus > 0)
     ? round(($totalReportado / $capacidadBus) * 100, 1)
     : null;
 
+
 // ==========================
 // 5. Datos para ECharts
 // ==========================
-
-// Timeline: fecha vs total_personas
 $timelineData = [];
 foreach ($reportes as $r) {
     $timelineData[] = [
@@ -115,7 +133,6 @@ foreach ($reportes as $r) {
     ];
 }
 
-// Personas por parada (sumatorio)
 $personasPorParada = [];
 foreach ($paradas as $p) {
     $personasPorParada[$p['idparada']] = [
@@ -126,26 +143,18 @@ foreach ($paradas as $p) {
     ];
 }
 foreach ($reportes as $r) {
-    $idp = $r['idparada'];
-    if (isset($personasPorParada[$idp])) {
-        $personasPorParada[$idp]['total'] += (int)$r['total_personas'];
-    }
+    $personasPorParada[$r['idparada']]['total'] += (int)$r['total_personas'];
 }
-// Ordenar por orden de parada
-usort($personasPorParada, function($a, $b) {
-    return $a['orden'] <=> $b['orden'];
-});
+usort($personasPorParada, fn($a, $b) => $a['orden'] <=> $b['orden']);
 
-// Para Google Maps: paradas con coordenadas
-$paradasMapa = array_values(array_filter($paradas, function($p) {
-    return !empty($p['latitud']) && !empty($p['longitud']);
-}));
+$paradasMapa = array_values(array_filter($paradas, fn($p) =>
+    !empty($p['latitud']) && !empty($p['longitud'])
+));
 
-$pageTitle   = 'Detalle de Ruta - ' . $ruta['nombre'];
-$currentPage = 'dashboard_rutas';
 
 require __DIR__ . '/../templates/header.php';
 ?>
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -316,86 +325,53 @@ require __DIR__ . '/../templates/header.php';
 <!-- Scripts específicos de esta página -->
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyC2Zm7v7BAdKaA-KAvna0q4y0lQgwvE1V4"></script>
 <script>
-// Datos PHP -> JS
-const timelineData = <?= json_encode($timelineData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
-const paradasData  = <?= json_encode($personasPorParada, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
-const paradasMapa  = <?= json_encode($paradasMapa, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+const timelineData = <?= json_encode($timelineData) ?>;
+const paradasData  = <?= json_encode($personasPorParada) ?>;
+const paradasMapa  = <?= json_encode($paradasMapa) ?>;
+const idruta       = <?= $idruta ?>;
 
-// ---------- ECharts: Timeline ----------
-function buildTimelineChart(){
-  const el = document.getElementById('chartTimeline');
-  if (!el) return;
-  const chart = echarts.init(el);
+let map;
+let busMarker = null;
 
-  const categorias = timelineData.map(p => p.fecha);
-  const valores    = timelineData.map(p => p.total);
-
-  const option = {
-    tooltip: { trigger: 'axis' },
-    xAxis: { type: 'category', data: categorias },
-    yAxis: { type: 'value', min: 0 },
-    series: [{
-      type: 'line',
-      data: valores,
-      smooth: true,
-      areaStyle: {}
-    }]
-  };
-  chart.setOption(option);
-  window.addEventListener('resize', () => chart.resize());
-}
-
-// ---------- ECharts: Personas por parada ----------
-function buildParadasChart(){
-  const el = document.getElementById('chartParadas');
-  if (!el) return;
-  const chart = echarts.init(el);
-
-  const labels = paradasData.map(p => p.orden + '. ' + (p.nombre || 'Parada'));
-  const valores = paradasData.map(p => p.total);
-  const estimados = paradasData.map(p => p.estimado);
-
-  const option = {
-    tooltip: {
-      trigger: 'axis',
-      formatter: params => {
-        let s = params[0].axisValue + '<br>';
-        params.forEach(p => {
-          s += p.seriesName + ': ' + p.value + '<br>';
+// -------------------------
+// ACTUALIZAR MARKER DEL BUS
+// -------------------------
+function updateBusPosition(lat, lng) {
+    if (!busMarker) {
+        busMarker = new google.maps.Marker({
+            map,
+            title: "Autobús",
+            icon: {
+                url: "../img/bus.png",
+                scaledSize: new google.maps.Size(40, 40)
+            }
         });
-        return s;
-      }
-    },
-    legend: { data: ['Reportado', 'Estimado'] },
-    grid: { left: 120, right: 20, top: 40, bottom: 30 },
-    xAxis: { type: 'value', min: 0 },
-    yAxis: { type: 'category', data: labels },
-    series: [
-      {
-        name: 'Reportado',
-        type: 'bar',
-        data: valores,
-        label: { show: true, position: 'right' }
-      },
-      {
-        name: 'Estimado',
-        type: 'bar',
-        data: estimados,
-        label: { show: false, position: 'right' }
-      }
-    ]
-  };
-
-  chart.setOption(option);
-  window.addEventListener('resize', () => chart.resize());
+    }
+    busMarker.setPosition({ lat: parseFloat(lat), lng: parseFloat(lng) });
 }
 
-// ---------- Google Maps ----------
+
+// -------------------------
+// CARGAR ÚLTIMA UBICACIÓN
+// -------------------------
+function fetchUltimaUbicacion() {
+    fetch(`detalle_ruta.php?action=ultima_ubicacion&idruta=${idruta}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.lat && data.lng) {
+                updateBusPosition(data.lat, data.lng);
+            }
+        });
+}
+
+// ----------------------
+// GOOGLE MAPS
+// ----------------------
 function initMap(){
   const mapEl = document.getElementById('mapRuta');
   if (!mapEl) return;
 
-  let center = {lat: 13.6929, lng: -89.2182}; // Fallback: San Salvador
+  let center = {lat: 13.6929, lng: -89.2182};
   if (paradasMapa.length > 0) {
     center = {
       lat: parseFloat(paradasMapa[0].latitud),
@@ -403,9 +379,9 @@ function initMap(){
     };
   }
 
-  const map = new google.maps.Map(mapEl, {
+  map = new google.maps.Map(mapEl, {
     center,
-    zoom: 9
+    zoom: 10
   });
 
   const pathCoords = [];
@@ -438,14 +414,25 @@ function initMap(){
     pathCoords.forEach(c => bounds.extend(c));
     map.fitBounds(bounds);
   }
+
+  // primera carga
+  fetchUltimaUbicacion();
+
+  // actualizar cada minuto
+  setInterval(fetchUltimaUbicacion, 60000);
 }
 
+
+// ----------------------
+// INICIO
+// ----------------------
 document.addEventListener('DOMContentLoaded', () => {
-  buildTimelineChart();
-  buildParadasChart();
-  initMap();
+    buildTimelineChart();
+    buildParadasChart();
+    initMap();
 });
 </script>
+
 
 <?php
 require __DIR__ . '/../templates/footer.php';
