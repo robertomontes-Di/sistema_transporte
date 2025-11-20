@@ -44,24 +44,12 @@ if ($action === 'stats') {
         // - Else => "inconveniente"
         // Modify the string checks to match your data.
         $sql_status_counts = "
-            SELECT
-                SUM(CASE WHEN lr.idaccion IS NULL THEN 1 ELSE 0 END) AS sin_problema,
-                SUM(CASE WHEN lr.idaccion IS NOT NULL
-                         AND (a.tipo_accion = 'falla' OR LOWER(a.nombre) LIKE '%falla%' OR LOWER(a.nombre) LIKE '%accidente%' OR LOWER(a.nombre) LIKE '%accident%')
-                         THEN 1 ELSE 0 END) AS falla,
-                SUM(CASE WHEN lr.idaccion IS NOT NULL
-                         AND NOT (a.tipo_accion = 'falla' OR LOWER(a.nombre) LIKE '%falla%' OR LOWER(a.nombre) LIKE '%accidente%' OR LOWER(a.nombre) LIKE '%accident%')
-                         THEN 1 ELSE 0 END) AS inconveniente
-            FROM (
-                SELECT r1.idruta, r1.idaccion
-                FROM reporte r1
-                INNER JOIN (
-                    SELECT idruta, MAX(fecha_reporte) AS max_fecha
-                    FROM reporte
-                    GROUP BY idruta
-                ) mx ON r1.idruta = mx.idruta AND r1.fecha_reporte = mx.max_fecha
-            ) lr
-            LEFT JOIN acciones a ON lr.idaccion = a.idaccion
+           SELECT
+    SUM(CASE WHEN a.tipo_accion = 'normal' THEN 1 ELSE 0 END) AS sin_problema,
+    SUM(CASE WHEN a.tipo_accion = 'inconveniente' THEN 1 ELSE 0 END) AS inconveniente,
+    SUM(CASE WHEN a.tipo_accion = 'critico' THEN 1 ELSE 0 END) AS critico
+FROM reporte r
+INNER JOIN acciones a ON a.idaccion = r.idaccion;
         ";
         $stmt = $pdo->query($sql_status_counts);
         $status = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -78,7 +66,7 @@ if ($action === 'stats') {
             'routes_total' => $total_routes,
             'sin_problema' => (int)$status['sin_problema'],
             'inconveniente' => (int)$status['inconveniente'],
-            'falla' => (int)$status['falla'],
+            'critico' => (int)$status['critico'],
         ];
         echo json_encode($resp);
         exit;
@@ -118,13 +106,15 @@ if ($action === 'map') {
         // For each row, compute a "status" string: sin_problema / inconveniente / falla (same logic as stats)
         $out = [];
         foreach ($rows as $row) {
-            $status = 'sin_problema';
-            if (!empty($row['idaccion'])) {
-                $nombre = strtolower($row['accion_nombre'] ?? '');
+            $status = '';
+            if (!empty($row['idaccion'])) {                
                 $tipo = strtolower($row['tipo_accion'] ?? '');
-                if ($tipo === 'falla' || strpos($nombre, 'falla') !== false || strpos($nombre, 'accident') !== false || strpos($nombre, 'accidente') !== false) {
-                    $status = 'falla';
-                } else {
+                if ($tipo === 'critico' ) {
+                    $status = 'critico';
+                }elseif($tipo === 'normal' ) {
+                    $status = 'sin_problema';
+                }                
+                else {
                     $status = 'inconveniente';
                 }
             }
@@ -216,13 +206,13 @@ header('Content-Type: text/html; charset=utf-8');
 
   <!-- KPIs -->
   <div class="row g-3 mb-4">
-    <div class="col-md-3">
+    <div class="col-md-2">
       <div class="kpi-card">
         <div class="text-muted">Total personas (último reporte)</div>
         <div class="kpi-value" id="kpi_total_reported">0</div>
       </div>
     </div>
-    <div class="col-md-3">
+    <div class="col-md-2">
       <div class="kpi-card">
         <div class="text-muted">Total estimado (paradas)</div>
         <div class="kpi-value" id="kpi_total_estimated">0</div>
@@ -242,8 +232,14 @@ header('Content-Type: text/html; charset=utf-8');
     </div>
     <div class="col-md-2">
       <div class="kpi-card">
-        <div class="text-muted">Con inconveniente / Falla</div>
-        <div class="kpi-value" id="kpi_inc_falla">0</div>
+        <div class="text-muted">Con inconveniente</div>
+        <div class="kpi-value" id="kpi_inconveniente">0</div>
+      </div>
+    </div>
+     <div class="col-md-2">
+      <div class="kpi-card">
+        <div class="text-muted">Crítico</div>
+        <div class="kpi-value" id="kpi_critico">0</div>
       </div>
     </div>
   </div>
@@ -319,7 +315,8 @@ async function renderKpisAndChart(){
     document.getElementById('kpi_routes_active').innerText = fmtNumber(stats.routes_active || 0);
     document.getElementById('kpi_sin_problema').innerText = fmtNumber(stats.sin_problema || 0);
     const inc_total = (stats.inconveniente || 0) + (stats.falla || 0);
-    document.getElementById('kpi_inc_falla').innerText = fmtNumber(inc_total);
+    document.getElementById('kpi_inconveniente').innerText = fmtNumber(stats.inconveniente || 0);
+    document.getElementById('kpi_critico').innerText = fmtNumber(stats.critico || 0);
 
     document.getElementById('last-update').innerText = new Date().toLocaleString();
 
@@ -390,9 +387,9 @@ async function renderRecentReports(){
 let mapInstance = null;
 let markers = [];
 function colorForStatus(status){
-  if(status === 'sin_problema') return '#2b7cff'; // azul
-  if(status === 'inconveniente') return '#f5a623'; // amarillo
-  if(status === 'falla') return '#e53935'; // rojo
+  if(status === 'sin_problema') return '#39ff14'; // azul
+  if(status === 'inconveniente') return '#ffa500'; // amarillo
+  if(status === 'critico') return '#ff004c'; // rojo
   return '#6c757d';
 }
 async function renderMap(){
