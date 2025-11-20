@@ -3,10 +3,13 @@
 ?>
     </div> <!-- /.content-wrapper -->
 
-    <footer class="main-footer text-center">
-        <strong>Sistema de Logística &copy; <?= date('Y') ?></strong>
-    </footer>
-
+<!-- Main Footer -->
+<footer class="main-footer">
+  <div class="float-right d-none d-sm-inline">
+    Centro de Logística
+  </div>
+  <strong>&copy; <?= date('Y') ?> Dirección de Integración.</strong> Todos los derechos reservados.
+</footer>
 </div> <!-- /.wrapper -->
 
 <!-- ===========================
