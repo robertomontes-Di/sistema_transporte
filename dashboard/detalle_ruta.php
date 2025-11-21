@@ -267,7 +267,7 @@ require __DIR__ . '/../templates/header.php';
             <h3 class="card-title">Mapa de paradas de la ruta</h3>
           </div>
           <div class="card-body">
-            <div id="mapRuta" style="width:100%;height:580px;border-radius:8px;"></div>
+            <div id="map" style="width:100%;height:580px;border-radius:8px;"></div>
           </div>
         </div>
       </div>
@@ -321,216 +321,84 @@ require __DIR__ . '/../templates/header.php';
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyC2Zm7v7BAdKaA-KAvna0q4y0lQgwvE1V4&libraries=geometry"></script>
 
 <script>
-const timelineData = <?= json_encode($timelineData) ?>;
-const paradasData  = <?= json_encode(array_values($personasPorParada)) ?>;
-const paradasMapa  = <?= json_encode($paradasMapa) ?>;
-const idruta       = <?= (int)$idruta ?>;
+let paradas = <?= json_encode($paradas) ?>;
 
-let map;
-let busMarker = null;
+function initMap() {
+    if (paradas.length < 2) return;
 
-// -------------------------
-// ECHARTS: TIMELINE
-// -------------------------
-function buildTimelineChart() {
-  const el = document.getElementById('chartTimeline');
-  if (!el || typeof echarts === 'undefined') return;
-
-  const chart = echarts.init(el);
-
-  const labels = timelineData.map(d => d.fecha);
-  const values = timelineData.map(d => d.total);
-
-  const option = {
-    tooltip: {
-      trigger: 'axis'
-    },
-    xAxis: {
-      type: 'category',
-      data: labels,
-      axisLabel: {
-        rotate: 45
-      }
-    },
-    yAxis: {
-      type: 'value',
-      min: 0
-    },
-    series: [{
-      name: 'Personas',
-      type: 'line',
-      smooth: true,
-      data: values,
-      label: {
-        show: true,
-        position: 'top'
-      }
-    }]
-  };
-
-  chart.setOption(option);
-  window.addEventListener('resize', () => chart.resize());
-}
-
-// -------------------------
-// ECHARTS: PERSONAS POR PARADA
-// -------------------------
-function buildParadasChart() {
-  const el = document.getElementById('chartParadas');
-  if (!el || typeof echarts === 'undefined') return;
-
-  const chart = echarts.init(el);
-
-  const labels   = paradasData.map(p => p.nombre);
-  const totales  = paradasData.map(p => p.total);
-  const estimado = paradasData.map(p => p.estimado);
-
-  const option = {
-    tooltip: {
-      trigger: 'axis'
-    },
-    legend: {
-      bottom: 0
-    },
-    grid: {
-      top: 30,
-      left: 40,
-      right: 10,
-      bottom: 60
-    },
-    xAxis: {
-      type: 'category',
-      data: labels,
-      axisLabel: {
-        interval: 0,
-        rotate: 45
-      }
-    },
-    yAxis: {
-      type: 'value',
-      min: 0
-    },
-    series: [
-      {
-        name: 'Reportado',
-        type: 'bar',
-        data: totales
-      },
-      {
-        name: 'Estimado',
-        type: 'bar',
-        data: estimado
-      }
-    ]
-  };
-
-  chart.setOption(option);
-  window.addEventListener('resize', () => chart.resize());
-}
-
-// -------------------------
-// MARCADOR DEL BUS
-// -------------------------
-function updateBusPosition(lat, lng) {
-  if (!map) return;
-
-  const pos = { lat: parseFloat(lat), lng: parseFloat(lng) };
-
-  if (!busMarker) {
-    busMarker = new google.maps.Marker({
-      map,
-      position: pos,
-      title: "Autobús",
-      icon: {
-        url: "<?= BASE_URL ?>/img/bus.png",
-        scaledSize: new google.maps.Size(40, 40)
-      }
+    const map = new google.maps.Map(document.getElementById('map'), {
+        center: {lat: parseFloat(paradas[0].latitud), lng: parseFloat(paradas[0].longitud)},
+        zoom: 13
     });
-  } else {
-    busMarker.setPosition(pos);
-  }
-}
 
-// -------------------------
-// CARGAR ÚLTIMA UBICACIÓN
-// -------------------------
-function fetchUltimaUbicacion() {
-  fetch(`detalle_ruta.php?action=ultima_ubicacion&idruta=${idruta}`)
-    .then(r => r.json())
-    .then(data => {
-      if (data && data.lat && data.lng) {
-        updateBusPosition(data.lat, data.lng);
-      }
-    })
-    .catch(() => {});
-}
+    // Servicio para obtener ruta
+    const directionsService = new google.maps.DirectionsService();
 
-// ----------------------
-// GOOGLE MAPS
-// ----------------------
-function initMap(){
-  const mapEl = document.getElementById('mapRuta');
-  if (!mapEl) return;
+    // Renderizador de ruta
+    const directionsRenderer = new google.maps.DirectionsRenderer({
+        map: map,
+        suppressMarkers: true   // Oculta marcadores por defecto
+    });
 
-  let center = {lat: 13.6929, lng: -89.2182};
-
-  if (paradasMapa.length > 0) {
-    center = {
-      lat: parseFloat(paradasMapa[0].latitud),
-      lng: parseFloat(paradasMapa[0].longitud)
+    // ================================
+    // 1. Crear puntos: origen, destino, waypoint
+    // ================================
+    const origen = {
+        lat: parseFloat(paradas[0].latitud),
+        lng: parseFloat(paradas[0].longitud)
     };
-  }
 
-  map = new google.maps.Map(mapEl, {
-    center,
-    zoom: 10
-  });
-
-  const pathCoords = [];
-  paradasMapa.forEach(p => {
-    const pos = {
-      lat: parseFloat(p.latitud),
-      lng: parseFloat(p.longitud)
+    const destino = {
+        lat: parseFloat(paradas[paradas.length - 1].latitud),
+        lng: parseFloat(paradas[paradas.length - 1].longitud)
     };
-    pathCoords.push(pos);
 
-    new google.maps.Marker({
-      position: pos,
-      map,
-      label: p.orden ? String(p.orden) : undefined,
-      title: p.punto_abordaje || 'Parada'
+    // Waypoints = todas las paradas intermedias
+    let waypoints = [];
+    for (let i = 1; i < paradas.length - 1; i++) {
+        waypoints.push({
+            location: {
+                lat: parseFloat(paradas[i].latitud),
+                lng: parseFloat(paradas[i].longitud)
+            },
+            stopover: true
+        });
+    }
+
+    // ================================
+    // 2. Solicitar ruta al API
+    // ================================
+    directionsService.route(
+        {
+            origin: origen,
+            destination: destino,
+            waypoints: waypoints,
+            travelMode: google.maps.TravelMode.DRIVING
+        },
+        function (result, status) {
+            if (status === google.maps.DirectionsStatus.OK) {
+                directionsRenderer.setDirections(result);
+            } else {
+                console.error("Error Directions:", status);
+            }
+        }
+    );
+
+    // ================================
+    // 3. Marcadores manuales
+    // ================================
+    paradas.forEach(p => {
+        new google.maps.Marker({
+            position: {lat: parseFloat(p.latitud), lng: parseFloat(p.longitud)},
+            map,
+            label: p.orden.toString()
+        });
     });
-  });
-
-  if (pathCoords.length > 1) {
-    const routeLine = new google.maps.Polyline({
-      path: pathCoords,
-      geodesic: true,
-      strokeColor: '#4285F4',
-      strokeOpacity: 0.8,
-      strokeWeight: 3
-    });
-    routeLine.setMap(map);
-
-    const bounds = new google.maps.LatLngBounds();
-    pathCoords.forEach(c => bounds.extend(c));
-    map.fitBounds(bounds);
-  }
-
-  // primera carga y refresco cada minuto
-  fetchUltimaUbicacion();
-  setInterval(fetchUltimaUbicacion, 60000);
 }
 
-// ----------------------
-// INICIO
-// ----------------------
-document.addEventListener('DOMContentLoaded', () => {
-  buildTimelineChart();
-  buildParadasChart();
-  initMap();
-});
+window.onload = initMap;
 </script>
+
 
 <?php
 require __DIR__ . '/../templates/footer.php';

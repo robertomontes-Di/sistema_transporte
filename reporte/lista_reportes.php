@@ -65,43 +65,7 @@ $reportes = $stmt->fetchAll(PDO::FETCH_ASSOC);
             background: #2196F3;
         }
     </style>
-    <script>
-document.getElementById("btnUbicacion").addEventListener("click", () => {
-
-    if (!navigator.geolocation) {
-        alert("La geolocalización no es soportada.");
-        return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-        (pos) => {
-            const lat = pos.coords.latitude;
-            const lng = pos.coords.longitude;
-
-            // Datos adicionales si quieres
-            const idusuario = 1; // traer de sesión
-            const idruta = 4;    // o desde la URL
-
-            fetch("guardar_ubicacion.php", {
-                method: "POST",
-                headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                body: `lat=${lat}&lng=${lng}&idusuario=${idusuario}&idruta=${idruta}`
-            })
-            .then(r => r.json())
-            .then(res => {
-                if (res.success) {
-                    alert("Ubicación guardada correctamente");
-                } else {
-                    alert("Error: " + res.msg);
-                }
-            });
-        },
-        (error) => {
-            alert("No se pudo obtener la ubicación: " + error.message);
-        }
-    );
-});
-</script>
+   
 
 </head>
 <body>
@@ -150,6 +114,42 @@ document.getElementById("btnUbicacion").addEventListener("click", () => {
     </tbody>
 </table>
 <?php endif; ?>
+ <script>
+document.getElementById("btnUbicacion").addEventListener("click", () => {
 
+    if (!navigator.geolocation) {
+        alert("La geolocalización no es soportada.");
+        return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+        (pos) => {
+            const lat = pos.coords.latitude;
+            const lng = pos.coords.longitude;
+
+            // Datos adicionales si quieres
+         
+            const idruta = <?php echo $idruta; ?>;    // o desde la URL
+
+            fetch("guardar_ubicacion.php", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: `lat=${lat}&lng=${lng}&idruta=${idruta}`
+            })
+            .then(r => r.json())
+            .then(res => {
+                if (res.success) {
+                    alert("Ubicación guardada correctamente");
+                } else {
+                    alert("Error: " + res.msg);
+                }
+            });
+        },
+        (error) => {
+            alert("No se pudo obtener la ubicación: " + error.message);
+        }
+    );
+});
+</script>
 </body>
 </html>
