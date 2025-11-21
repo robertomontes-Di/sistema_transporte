@@ -8,7 +8,7 @@
   <div class="float-right d-none d-sm-inline">
     Centro de Logística
   </div>
-  <strong>&copy; <?= date('Y') ?> Dirección de Integración.</strong> Todos los derechos reservados.
+  <strong>&copy; <?= date('Y') ?> Dirección de Integración.</strong> Desarrollado por UTI.
 </footer>
 </div> <!-- /.wrapper -->
 
