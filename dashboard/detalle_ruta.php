@@ -321,84 +321,162 @@ require __DIR__ . '/../templates/header.php';
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyC2Zm7v7BAdKaA-KAvna0q4y0lQgwvE1V4&libraries=geometry"></script>
 
 <script>
-let paradas = <?= json_encode($paradas) ?>;
+// Datos para los gráficos
+const timelineData     = <?= json_encode($timelineData) ?>;
+const paradasChartData = <?= json_encode(array_values($personasPorParada)) ?>;
+const paradasMapa      = <?= json_encode($paradasMapa) ?>;
 
-function initMap() {
-    if (paradas.length < 2) return;
+// -----------------------------
+// ECharts: Timeline de reportes
+// -----------------------------
+function buildTimelineChart() {
+  const el = document.getElementById('chartTimeline');
+  if (!el || !timelineData || !timelineData.length || typeof echarts === 'undefined') return;
 
-    const map = new google.maps.Map(document.getElementById('map'), {
-        center: {lat: parseFloat(paradas[0].latitud), lng: parseFloat(paradas[0].longitud)},
-        zoom: 13
-    });
+  const chart = echarts.init(el);
 
-    // Servicio para obtener ruta
-    const directionsService = new google.maps.DirectionsService();
+  const option = {
+    tooltip: { trigger: 'axis' },
+    xAxis: {
+      type: 'category',
+      data: timelineData.map(i => i.fecha),
+      axisLabel: { rotate: timelineData.length > 6 ? 30 : 0 }
+    },
+    yAxis: { type: 'value', min: 0 },
+    series: [{
+      name: 'Personas',
+      type: 'line',
+      smooth: true,
+      areaStyle: {},
+      data: timelineData.map(i => i.total)
+    }]
+  };
 
-    // Renderizador de ruta
-    const directionsRenderer = new google.maps.DirectionsRenderer({
-        map: map,
-        suppressMarkers: true   // Oculta marcadores por defecto
-    });
-
-    // ================================
-    // 1. Crear puntos: origen, destino, waypoint
-    // ================================
-    const origen = {
-        lat: parseFloat(paradas[0].latitud),
-        lng: parseFloat(paradas[0].longitud)
-    };
-
-    const destino = {
-        lat: parseFloat(paradas[paradas.length - 1].latitud),
-        lng: parseFloat(paradas[paradas.length - 1].longitud)
-    };
-
-    // Waypoints = todas las paradas intermedias
-    let waypoints = [];
-    for (let i = 1; i < paradas.length - 1; i++) {
-        waypoints.push({
-            location: {
-                lat: parseFloat(paradas[i].latitud),
-                lng: parseFloat(paradas[i].longitud)
-            },
-            stopover: true
-        });
-    }
-
-    // ================================
-    // 2. Solicitar ruta al API
-    // ================================
-    directionsService.route(
-        {
-            origin: origen,
-            destination: destino,
-            waypoints: waypoints,
-            travelMode: google.maps.TravelMode.DRIVING
-        },
-        function (result, status) {
-            if (status === google.maps.DirectionsStatus.OK) {
-                directionsRenderer.setDirections(result);
-            } else {
-                console.error("Error Directions:", status);
-            }
-        }
-    );
-
-    // ================================
-    // 3. Marcadores manuales
-    // ================================
-    paradas.forEach(p => {
-        new google.maps.Marker({
-            position: {lat: parseFloat(p.latitud), lng: parseFloat(p.longitud)},
-            map,
-            label: p.orden.toString()
-        });
-    });
+  chart.setOption(option);
+  window.addEventListener('resize', () => chart.resize());
 }
 
-window.onload = initMap;
-</script>
+// ----------------------------------------
+// ECharts: Personas por parada (reportado vs estimado)
+// ----------------------------------------
+function buildParadasChart() {
+  const el = document.getElementById('chartParadas');
+  if (!el || !paradasChartData || !paradasChartData.length || typeof echarts === 'undefined') return;
 
+  const chart = echarts.init(el);
+
+  const labels    = paradasChartData.map(p => p.nombre);
+  const totales   = paradasChartData.map(p => p.total);
+  const estimados = paradasChartData.map(p => p.estimado);
+
+  const option = {
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['Reportado', 'Estimado'] },
+    xAxis: {
+      type: 'category',
+      data: labels,
+      axisLabel: {
+        interval: 0,
+        rotate: labels.length > 6 ? 30 : 0
+      }
+    },
+    yAxis: { type: 'value', min: 0 },
+    series: [
+      { name: 'Reportado', type: 'bar', data: totales },
+      { name: 'Estimado', type: 'bar', data: estimados }
+    ]
+  };
+
+  chart.setOption(option);
+  window.addEventListener('resize', () => chart.resize());
+}
+
+// ----------------------
+// GOOGLE MAPS
+// ----------------------
+let map;
+
+function initMap() {
+  const mapEl = document.getElementById('map');
+  if (!mapEl || !paradasMapa || paradasMapa.length === 0) return;
+
+  const center = {
+    lat: parseFloat(paradasMapa[0].latitud),
+    lng: parseFloat(paradasMapa[0].longitud)
+  };
+
+  map = new google.maps.Map(mapEl, {
+    center,
+    zoom: 13
+  });
+
+  const directionsService  = new google.maps.DirectionsService();
+  const directionsRenderer = new google.maps.DirectionsRenderer({
+    map: map,
+    suppressMarkers: true
+  });
+
+  // Origen, destino y waypoints
+  const origen = {
+    lat: parseFloat(paradasMapa[0].latitud),
+    lng: parseFloat(paradasMapa[0].longitud)
+  };
+
+  const destino = {
+    lat: parseFloat(paradasMapa[paradasMapa.length - 1].latitud),
+    lng: parseFloat(paradasMapa[paradasMapa.length - 1].longitud)
+  };
+
+  let waypoints = [];
+  for (let i = 1; i < paradasMapa.length - 1; i++) {
+    waypoints.push({
+      location: {
+        lat: parseFloat(paradasMapa[i].latitud),
+        lng: parseFloat(paradasMapa[i].longitud)
+      },
+      stopover: true
+    });
+  }
+
+  directionsService.route(
+    {
+      origin: origen,
+      destination: destino,
+      waypoints: waypoints,
+      travelMode: google.maps.TravelMode.DRIVING
+    },
+    function (result, status) {
+      if (status === google.maps.DirectionsStatus.OK) {
+        directionsRenderer.setDirections(result);
+      } else {
+        console.error("Error Directions:", status);
+      }
+    }
+  );
+
+  // Marcadores
+  paradasMapa.forEach(p => {
+    new google.maps.Marker({
+      position: {
+        lat: parseFloat(p.latitud),
+        lng: parseFloat(p.longitud)
+      },
+      map,
+      label: p.orden ? String(p.orden) : undefined,
+      title: p.punto_abordaje || 'Parada'
+    });
+  });
+}
+
+// ----------------------
+// INICIO
+// ----------------------
+document.addEventListener('DOMContentLoaded', () => {
+  buildTimelineChart();
+  buildParadasChart();
+  initMap();
+});
+</script>
 
 <?php
 require __DIR__ . '/../templates/footer.php';
