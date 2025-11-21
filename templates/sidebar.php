@@ -13,8 +13,12 @@ if (!isset($currentPage)) {
 <aside class="main-sidebar sidebar-dark-primary elevation-4">
   <!-- Brand Logo -->
   <a href="<?= BASE_URL ?>/dashboard/dashboard_global.php" class="brand-link">
-    <span class="brand-text font-weight-light">Transporte DI</span>
-  </a>
+    <img src="<?= BASE_URL ?>/assets/img/logo.png"
+         alt="Logo"
+         style="opacity: .9; width:auto; height:50px; object-fit:cover;">
+    <span class="brand-text font-weight-light ml-2"> </span>
+</a>
+
 
   <!-- Sidebar -->
   <div class="sidebar">
