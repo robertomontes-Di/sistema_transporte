@@ -1,102 +1,253 @@
 <?php
+// admin/admin_ruta.php
+
+ini_set('display_errors', 0);
+error_reporting(0);
+
 require_once __DIR__ . '/../includes/db.php';
+require_once __DIR__ . '/../includes/config.php';
+
 $idruta = intval($_GET['id'] ?? 0);
 
 $encargados = $pdo->query('SELECT idencargado_ruta, nombre FROM encargado_ruta')->fetchAll();
-$buses = $pdo->query('SELECT idbus, placa, proveedor FROM bus')->fetchAll();
-$agentes = $pdo->query('SELECT idagente, nombre FROM agente')->fetchAll();
+$buses      = $pdo->query('SELECT idbus, placa, proveedor FROM bus')->fetchAll();
+$agentes    = $pdo->query('SELECT idagente, nombre FROM agente')->fetchAll();
+
+$pageTitle   = "Administrar Ruta";
+$currentPage = "admin_rutas";
+
+require __DIR__ . '/../templates/header.php';
 ?>
-<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>Admin Ruta</title>
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet"/>
+
+<!-- Estilos específicos de esta página -->
+<style>
+  #mapa {
+    width: 100%;
+    height: 380px;
+    margin-bottom: 10px;
+    border-radius: 8px;
+  }
+  .parada-row {
+    cursor: grab;
+  }
+</style>
+
+<!-- Content Wrapper -->
+<div class="content-wrapper">
+
+  <!-- Encabezado -->
+  <section class="content-header">
+    <div class="container-fluid">
+      <div class="row mb-2">
+        <div class="col-sm-6">
+          <h1><?= $idruta ? 'Editar Ruta' : 'Crear Ruta' ?></h1>
+          <p class="text-muted mb-0">
+            Configura la información general de la ruta y sus paradas.
+          </p>
+        </div>
+        <div class="col-sm-6 text-right">
+          <a href="admin_rutas_listado.php" class="btn btn-secondary">
+            <i class="fas fa-arrow-left mr-1"></i> Volver al listado
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Contenido principal -->
+  <section class="content">
+    <div class="container-fluid">
+
+      <div class="row">
+
+        <!-- Columna izquierda: Datos de la ruta + formulario de parada -->
+        <div class="col-md-5">
+
+          <!-- Card Ruta -->
+          <div class="card card-info">
+            <div class="card-header">
+              <h3 class="card-title">Datos generales de la ruta</h3>
+            </div>
+            <form id="formRuta">
+              <div class="card-body">
+                <input type="hidden" id="idruta" value="<?= $idruta ?>">
+
+                <div class="form-group">
+                  <label for="nombreRuta">Nombre</label>
+                  <input type="text" id="nombreRuta" class="form-control" required>
+                </div>
+
+                <div class="form-group">
+                  <label for="destino">Destino</label>
+                  <input type="text" id="destino" class="form-control" required>
+                </div>
+
+                <div class="form-group">
+                  <label for="encargadoRuta">Encargado</label>
+                  <select id="encargadoRuta" class="form-control" required>
+                    <option value="">Seleccione</option>
+                    <?php foreach($encargados as $e): ?>
+                      <option value="<?= $e['idencargado_ruta'] ?>">
+                        <?= htmlspecialchars($e['nombre']) ?>
+                      </option>
+                    <?php endforeach; ?>
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label for="bus">Bus</label>
+                  <select id="bus" class="form-control" required>
+                    <option value="">Seleccione</option>
+                    <?php foreach($buses as $b): ?>
+                      <option value="<?= $b['idbus'] ?>">
+                        <?= htmlspecialchars($b['placa'].' '.($b['proveedor']?:'')) ?>
+                      </option>
+                    <?php endforeach; ?>
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label for="agente">Agente asignado</label>
+                  <select id="agente" class="form-control" required>
+                    <option value="">Seleccione</option>
+                    <?php foreach($agentes as $a): ?>
+                      <option value="<?= $a['idagente'] ?>">
+                        <?= htmlspecialchars($a['nombre']) ?>
+                      </option>
+                    <?php endforeach; ?>
+                  </select>
+                </div>
+              </div>
+
+              <div class="card-footer d-flex justify-content-between">
+                <div>
+                  <button id="btnGuardarRuta" class="btn btn-success" type="button">
+                    <i class="fas fa-save mr-1"></i> Guardar ruta
+                  </button>
+                  <button id="btnNuevo" class="btn btn-secondary" type="button">
+                    Nuevo
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+
+          <!-- Card Paradas -->
+          <div class="card card-outline card-primary" id="panelParadas" style="display:none;">
+            <div class="card-header">
+              <h3 class="card-title">Agregar / Editar parada</h3>
+            </div>
+            <form id="formParada">
+              <div class="card-body">
+                <input type="hidden" id="idparada" value="0">
+
+                <div class="form-group">
+                  <label for="punto">Punto de abordaje</label>
+                  <input type="text" id="punto" class="form-control" required>
+                </div>
+
+                <div class="form-group">
+                  <label for="horaAbordaje">Hora abordaje</label>
+                  <input type="time" id="horaAbordaje" class="form-control">
+                </div>
+
+                <div class="form-group">
+                  <label for="horaSalida">Hora salida</label>
+                  <input type="time" id="horaSalida" class="form-control">
+                </div>
+
+                <div class="form-group">
+                  <label for="depto">Departamento</label>
+                  <input type="text" id="depto" class="form-control">
+                </div>
+
+                <div class="form-group">
+                  <label for="mun">Municipio</label>
+                  <input type="text" id="mun" class="form-control">
+                </div>
+
+                <div class="form-group">
+                  <label for="estimado">Estimado personas</label>
+                  <input type="number" id="estimado" class="form-control" min="0">
+                </div>
+
+                <div class="form-group">
+                  <label>Ubicación geográfica</label>
+                  <div class="row">
+                    <div class="col-md-6 mb-2">
+                      <input type="text" id="lat" class="form-control" placeholder="Latitud" required>
+                    </div>
+                    <div class="col-md-6 mb-2">
+                      <input type="text" id="lng" class="form-control" placeholder="Longitud" required>
+                    </div>
+                  </div>
+                  <small class="text-muted">
+                    Haz clic en el mapa para seleccionar la ubicación de la parada.
+                  </small>
+                  <div id="mapa" class="mt-2"></div>
+                </div>
+
+              </div>
+              <div class="card-footer d-flex justify-content-between">
+                <div>
+                  <button id="btnAgregarParada" class="btn btn-primary" type="button">
+                    <i class="fas fa-map-marker-alt mr-1"></i> Agregar / Guardar parada
+                  </button>
+                  <button id="btnLimpiarParada" class="btn btn-secondary" type="button">
+                    Limpiar
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+
+        </div><!-- /.col-md-5 -->
+
+        <!-- Columna derecha: listado de paradas -->
+        <div class="col-md-7">
+          <div class="card" id="panelListadoParadas" style="display:none;">
+            <div class="card-header">
+              <h3 class="card-title">Paradas de la ruta</h3><br>
+              <p class="mb-0 text-muted" style="font-size: 0.9rem;">
+                Arrastre las filas para reordenar el recorrido.
+              </p>
+            </div>
+            <div class="card-body p-0">
+              <div class="table-responsive">
+                <table class="table table-sm table-striped mb-0">
+                  <thead class="thead-light">
+                    <tr>
+                      <th>Punto</th>
+                      <th>Hora A</th>
+                      <th>Hora S</th>
+                      <th>Municipio</th>
+                      <th>Estimado</th>
+                      <th style="width:150px;">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tablaParadas"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div><!-- /.col-md-7 -->
+
+      </div><!-- /.row -->
+
+    </div><!-- /.container-fluid -->
+  </section>
+
+</div><!-- /.content-wrapper -->
+
+<!-- Librerías específicas de esta página -->
 <link rel="stylesheet" href="https://code.jquery.com/ui/1.13.2/themes/base/jquery-ui.css">
-<style>#mapa{width:100%;height:380px;margin-bottom:10px;} .parada-row{cursor:grab}</style>
-</head>
-<body class="container py-3">
-<h2>Administrar Ruta</h2>
-<a href="admin_rutas_listado.php">← Volver al listado</a>
 
-<div class="row mt-3">
-  <div class="col-md-5">
-    <form id="formRuta">
-      <input type="hidden" id="idruta" value="<?= $idruta ?>">
-      <div class="mb-2">
-        <label>Nombre</label>
-        <input type="text" id="nombreRuta" class="form-control" required>
-      </div>
-      <div class="mb-2">
-        <label>Destino</label>
-        <input type="text" id="destino" class="form-control" required>
-      </div>
-      <div class="mb-2">
-        <label>Encargado</label>
-        <select id="encargadoRuta" class="form-select" required>
-          <option value="">Seleccione</option>
-          <?php foreach($encargados as $e): ?>
-            <option value="<?= $e['idencargado_ruta'] ?>"><?= htmlspecialchars($e['nombre']) ?></option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-      <div class="mb-2">
-        <label>Bus</label>
-        <select id="bus" class="form-select" required>
-          <option value="">Seleccione</option>
-          <?php foreach($buses as $b): ?>
-            <option value="<?= $b['idbus'] ?>"><?= htmlspecialchars($b['placa'].' '.($b['proveedor']?:'')) ?></option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-      <div class="mb-2">
-        <label>Agente</label>
-        <select id="agente" class="form-select" required>
-          <option value="">Seleccione</option>
-          <?php foreach($agentes as $a): ?>
-            <option value="<?= $a['idagente'] ?>"><?= htmlspecialchars($a['nombre']) ?></option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-      <div class="d-flex gap-2 mt-2">
-        <button id="btnGuardarRuta" class="btn btn-success" type="button">Guardar ruta</button>
-        <button id="btnNuevo" class="btn btn-secondary" type="button">Nuevo</button>
-      </div>
-    </form>
-
-    <hr>
-
-    <div id="panelParadas" style="display:none;">
-      <h5>Agregar / Editar parada</h5>
-      <form id="formParada">
-        <input type="hidden" id="idparada" value="0">
-        <div class="mb-2"><label>Punto de abordaje</label><input type="text" id="punto" class="form-control" required></div>
-        <div class="mb-2"><label>Hora abordaje</label><input type="time" id="horaAbordaje" class="form-control"></div>
-        <div class="mb-2"><label>Hora salida</label><input type="time" id="horaSalida" class="form-control"></div>
-        <div class="mb-2"><label>Departamento</label><input type="text" id="depto" class="form-control"></div>
-        <div class="mb-2"><label>Municipio</label><input type="text" id="mun" class="form-control"></div>
-        <div class="mb-2"><label>Estimado personas</label><input type="number" id="estimado" class="form-control" min="0"></div>
-        <div class="mb-2"><label>Latitud</label><input type="text" id="lat" class="form-control" required></div>
-        <div class="mb-2"><label>Longitud</label><input type="text" id="lng" class="form-control" required></div>
-        <div id="mapa"></div>
-        <div class="d-flex gap-2"><button id="btnAgregarParada" class="btn btn-primary" type="button">Agregar/Guardar parada</button>
-        <button id="btnLimpiarParada" class="btn btn-secondary" type="button">Limpiar</button></div>
-      </form>
-    </div>
-
-  </div>
-  <div class="col-md-7">
-    <div id="panelListadoParadas" style="display:none;">
-      <h5>Paradas (arrastrar para reordenar)</h5>
-      <table class="table table-sm"><thead><tr><th>Punto</th><th>Hora A</th><th>Hora S</th><th>Municipio</th><th>Estimado</th><th>Acc</th></tr></thead>
-      <tbody id="tablaParadas"></tbody></table>
-    </div>
-  </div>
-</div>
-
+<!-- jQuery (si ya lo cargas en footer.php puedes quitar esta línea) -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+
 <script src="https://code.jquery.com/ui/1.13.2/jquery-ui.min.js"></script>
-<!-- Google Maps API: reemplaza TU_API_KEY -->
+
+<!-- Google Maps API -->
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyC2Zm7v7BAdKaA-KAvna0q4y0lQgwvE1V4&callback=inicializarMapa&libraries=marker" async defer></script>
 
 <script>
@@ -109,8 +260,9 @@ function inicializarMapa() {
 
     mapa = new google.maps.Map(document.getElementById('mapa'), {
         zoom: 12,
-        center: centro,
-        mapId: 'TU_MAP_ID' // si no tienes, elimina esta línea
+        center: centro
+        // mapId opcional, eliminar si no tienes uno configurado
+        // mapId: 'TU_MAP_ID'
     });
 
     mapa.addListener('click', (e) => colocarMarcador(e.latLng));
@@ -182,7 +334,12 @@ function renderParadas(paradas) {
             .append('<td>'+(p.hora_salida||'')+'</td>')
             .append('<td>'+(p.municipio||'')+'</td>')
             .append('<td>'+(p.estimado_personas||'')+'</td>')
-            .append("<td><button class='btn btn-sm btn-info btn-editar-parada' data-id='"+p.idparada+"'>Editar</button> <button class='btn btn-sm btn-danger btn-eliminar-parada' data-id='"+p.idparada+"'>Eliminar</button></td>");
+            .append(
+              "<td>" +
+              "<button class='btn btn-sm btn-info btn-editar-parada' data-id='"+p.idparada+"'><i class='fas fa-edit'></i></button> " +
+              "<button class='btn btn-sm btn-danger btn-eliminar-parada' data-id='"+p.idparada+"'><i class='fas fa-trash'></i></button>" +
+              "</td>"
+            );
         $('#tablaParadas').append(tr);
     });
 
@@ -244,7 +401,11 @@ $(function() {
     $('#btnLimpiarParada').on('click', limpiarFormParada);
 
     $('#btnAgregarParada').on('click', function(){
-        const idruta = $('#idruta').val(); if(!idruta||idruta==0){ alert('Guarde la ruta primero'); return; }
+        const idruta = $('#idruta').val();
+        if(!idruta || idruta == 0){
+            alert('Guarde la ruta primero');
+            return;
+        }
         const payload = {
             idparada: $('#idparada').val()||0,
             idruta: idruta,
@@ -261,8 +422,12 @@ $(function() {
         if(!payload.lat || !payload.lng){ alert('Seleccione ubicación en el mapa'); return; }
 
         $.post('ajax/save_parada.php', payload, function(res){
-            if(res.success){ renderParadas(res.paradas); limpiarFormParada(); }
-            else alert('Error: '+(res.error||''));
+            if(res.success){
+                renderParadas(res.paradas);
+                limpiarFormParada();
+            } else {
+                alert('Error: '+(res.error||''));
+            }
         }, 'json');
     });
 
@@ -297,17 +462,24 @@ $(function() {
     });
 
     $(document).on('click', '.btn-eliminar-parada', function(){
-        if(!confirm('Eliminar?')) return;
+        if(!confirm('¿Eliminar esta parada?')) return;
         const id = $(this).data('id');
         $.post('ajax/delete_parada.php',{ idparada:id }, function(res){
-            if(res.success){ $('tr[data-idparada="'+id+'"]').remove(); }
-            else alert('Error al eliminar parada');
+            if(res.success){
+                $('tr[data-idparada="'+id+'"]').remove();
+            } else {
+                alert('Error al eliminar parada');
+            }
         }, 'json');
     });
+
+    // Si viene idruta en la URL, cargar datos
+    if (<?= $idruta ?> > 0) {
+        $('#panelParadas').show();
+        $('#panelListadoParadas').show();
+    }
 });
 </script>
 
-
-
-</body>
-</html>
+<?php
+require __DIR__ . '/../templates/footer.php';
