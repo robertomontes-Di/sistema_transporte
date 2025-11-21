@@ -83,13 +83,13 @@ if (!isset($currentPage)) {
         </li>
 
         <!-- REPORTES / ANÁLISIS -->
-        <li class="nav-item">
+        <!-- <li class="nav-item">
           <a href="<?= BASE_URL ?>/reporte/lista_reportes.php"
              class="nav-link <?= $currentPage === 'reporte_listado' ? 'active' : '' ?>">
             <i class="nav-icon fas fa-clipboard-list"></i>
             <p>Listado de reportes</p>
           </a>
-        </li>
+        </li> -->
 
         <!-- ADMINISTRACIÓN -->
         <li class="nav-item has-treeview <?= in_array($currentPage, ['admin_rutas','admin_ruta']) ? 'menu-open' : '' ?>">
