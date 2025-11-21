@@ -21,7 +21,7 @@ if ($action) {
             }
 
             if (!empty($_GET['estado'])) {
-                // estado: sin_problema, inconveniente, falla
+                // estado: sin_problema, inconveniente, critico
                 // Lo filtramos luego en PHP sobre el array ya clasificado
                 $estadoFilter = $_GET['estado'];
             } else {
@@ -82,18 +82,15 @@ if ($action) {
             $out = [];
             foreach ($rows as $r) {
                 // Clasificar estado de la ruta según el último reporte
-                $status = 'sin_problema';
-                $accion_nombre = strtolower($r['accion_nombre'] ?? '');
-                $tipo          = strtolower($r['tipo_accion'] ?? '');
+                $status = '';       
+             
 
                 if (!empty($r['idaccion'])) {
-                    if (
-                        $tipo === 'falla' ||
-                        strpos($accion_nombre, 'falla') !== false ||
-                        strpos($accion_nombre, 'accidente') !== false ||
-                        strpos($accion_nombre, 'accident') !== false
-                    ) {
-                        $status = 'falla';
+                    $tipo = strtolower($r['tipo_accion']);
+                    if ($tipo === 'critico') {
+                        $status = 'critico';
+                    } elseif ($tipo === 'normal') {
+                        $status = 'sin_problema';
                     } else {
                         $status = 'inconveniente';
                     }
@@ -180,7 +177,7 @@ require __DIR__ . '/../templates/header.php';
             <option value="">Todos</option>
             <option value="sin_problema">Sin problema</option>
             <option value="inconveniente">Inconveniente</option>
-            <option value="falla">Falla</option>
+            <option value="critico">Crítico</option>
           </select>
           <button id="btnRefresh" class="btn btn-sm btn-primary">
             <i class="fas fa-sync-alt mr-1"></i> Actualizar
@@ -244,8 +241,8 @@ require __DIR__ . '/../templates/header.php';
       <div class="col-md-2">
         <div class="small-box bg-white">
           <div class="inner">
-            <p class="text-muted mb-1">Falla</p>
-            <h3 class="text-danger" id="kpi_falla">0</h3>
+            <p class="text-muted mb-1">Crítico</p>
+            <h3 class="text-danger" id="kpi_critico">0</h3>
           </div>
           <div class="icon">
             <i class="fas fa-exclamation-triangle"></i>
@@ -396,20 +393,20 @@ function buildKpis(routes){
   let activas = 0;
   let sinProb = 0;
   let incon   = 0;
-  let falla   = 0;
+  let critico   = 0;
 
   routes.forEach(r => {
     if (r.flag_arrival === 0) activas++;
     if (r.status === 'sin_problema') sinProb++;
     else if (r.status === 'inconveniente') incon++;
-    else if (r.status === 'falla') falla++;
+    else if (r.status === 'critico') critico++;
   });
 
   document.getElementById('kpi_total_rutas').textContent      = fmtNumber(total);
   document.getElementById('kpi_rutas_activas').textContent    = fmtNumber(activas);
   document.getElementById('kpi_sin_problema').textContent     = fmtNumber(sinProb);
   document.getElementById('kpi_inconveniente').textContent    = fmtNumber(incon);
-  document.getElementById('kpi_falla').textContent            = fmtNumber(falla);
+  document.getElementById('kpi_critico').textContent            = fmtNumber(critico);
 }
 
 function statusBadge(status){
@@ -421,9 +418,9 @@ function statusBadge(status){
   } else if (status === 'inconveniente') {
     cls = 'badge-warning';
     txt = 'Inconveniente';
-  } else if (status === 'falla') {
+  } else if (status === 'critico') {
     cls = 'badge-danger';
-    txt = 'Falla';
+    txt = 'Crítico';
   }
   return `<span class="badge ${cls}">${txt}</span>`;
 }
