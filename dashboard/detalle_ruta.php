@@ -8,11 +8,15 @@ error_reporting(E_ALL);
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/config.php';
 
-// -------------------------------------------------------
-// ENDPOINT INTERNO PARA OBTENER ÚLTIMA UBICACIÓN DEL BUS
-// -------------------------------------------------------
+/*
+ -----------------------------------------------------------------
+  ENDPOINT JSON: Última ubicación del bus (para marcador en el mapa)
+ -----------------------------------------------------------------
+  Se usa desde el botón "Enviar ubicación" del líder de ruta, que
+  guarda coordenadas en la tabla `ubicaciones`.
+*/
 if (isset($_GET['action']) && $_GET['action'] === 'ultima_ubicacion') {
-    header('Content-Type: application/json');
+    header('Content-Type: application/json; charset=utf-8');
 
     $idruta = (int)($_GET['idruta'] ?? 0);
     if ($idruta <= 0) {
@@ -20,29 +24,35 @@ if (isset($_GET['action']) && $_GET['action'] === 'ultima_ubicacion') {
         exit;
     }
 
-    $sql = "SELECT lat, lng 
-            FROM ubicaciones 
-            WHERE idruta = :idruta 
-            ORDER BY fecha DESC 
-            LIMIT 1";
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute([':idruta' => $idruta]);
-
-    echo json_encode($stmt->fetch(PDO::FETCH_ASSOC) ?: []);
+    try {
+        $sql = "
+            SELECT lat, lng
+            FROM ubicaciones
+            WHERE idruta = :idruta
+            ORDER BY fecha DESC
+            LIMIT 1
+        ";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute([':idruta' => $idruta]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        echo json_encode($row ?: []);
+    } catch (Throwable $e) {
+        echo json_encode([]);
+    }
     exit;
 }
-// -------------------------------------------------------
 
-
-// Aceptar ?idruta= o ?id=
+/* -------------------------------------------------------
+   1. Validación de parámetro idruta
+--------------------------------------------------------*/
 $idruta = isset($_GET['idruta']) ? (int)$_GET['idruta'] : (int)($_GET['id'] ?? 0);
 if ($idruta <= 0) {
     die('Ruta inválida');
 }
 
-// ==========================
-// 1. Datos generales de ruta
-// ==========================
+/* -------------------------------------------------------
+   2. Datos generales de la ruta
+--------------------------------------------------------*/
 $sqlRuta = "
     SELECT 
         r.idruta,
@@ -65,9 +75,9 @@ if (!$ruta) {
     die('Ruta no encontrada');
 }
 
-// ==========================
-// 2. Paradas de la ruta
-// ==========================
+/* -------------------------------------------------------
+   3. Paradas de la ruta
+--------------------------------------------------------*/
 $sqlParadas = "
     SELECT 
         idparada,
@@ -84,23 +94,9 @@ $stmtPar = $pdo->prepare($sqlParadas);
 $stmtPar->execute([':idruta' => $idruta]);
 $paradas = $stmtPar->fetchAll(PDO::FETCH_ASSOC);
 
-// ==========================
-// 3. Última ubicación del bus
-// ==========================
-$sql = "
-        SELECT lat, lng, fecha_registro
-        FROM ubicaciones
-        WHERE idruta = :idruta
-        ORDER BY fecha_registro DESC
-        LIMIT 1
-    ";
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute([':idruta' => $idruta]);
-
-    $ubicacion_bus = $stmt->fetch(PDO::FETCH_ASSOC);
-// ==========================
-// 4. Reportes
-// ==========================
+/* -------------------------------------------------------
+   4. Reportes de la ruta
+--------------------------------------------------------*/
 $sqlRep = "
     SELECT 
         rep.idreporte,
@@ -120,11 +116,11 @@ $stmtRep = $pdo->prepare($sqlRep);
 $stmtRep->execute([':idruta' => $idruta]);
 $reportes = $stmtRep->fetchAll(PDO::FETCH_ASSOC);
 
-// ==========================
-// 5. Métricas
-// ==========================
-$totalEstimado   = array_sum(array_column($paradas, 'estimado_personas'));
-$totalReportado  = array_sum(array_column($reportes, 'total_personas'));
+/* -------------------------------------------------------
+   5. Métricas globales
+--------------------------------------------------------*/
+$totalEstimado  = array_sum(array_column($paradas, 'estimado_personas'));
+$totalReportado = array_sum(array_column($reportes, 'total_personas'));
 
 $avance = ($totalEstimado > 0)
     ? round(($totalReportado / $totalEstimado) * 100, 1)
@@ -135,11 +131,13 @@ $pctUsoBus    = ($capacidadBus > 0)
     ? round(($totalReportado / $capacidadBus) * 100, 1)
     : null;
 
-// ==========================
-// 6. Datos para ECharts
-// ==========================
+/* -------------------------------------------------------
+   6. Datos para ECharts
+   - Timeline por evento
+   - Personas por parada (reportadas vs estimado)
+--------------------------------------------------------*/
 
-// Timeline por evento
+// Timeline: cada punto = un reporte
 $timelineData = [];
 foreach ($reportes as $r) {
     $timelineData[] = [
@@ -170,6 +168,22 @@ usort($personasPorParada, fn($a, $b) => $a['orden'] <=> $b['orden']);
 $paradasMapa = array_values(array_filter($paradas, fn($p) =>
     !empty($p['latitud']) && !empty($p['longitud'])
 ));
+
+/* -------------------------------------------------------
+   7. Recorrido real del bus (tabla ubicaciones)
+--------------------------------------------------------*/
+$sqlUbic = "
+    SELECT 
+        lat,
+        lng,
+        fecha
+    FROM ubicaciones
+    WHERE idruta = :idruta
+    ORDER BY fecha ASC
+";
+$stmtUbic = $pdo->prepare($sqlUbic);
+$stmtUbic->execute([':idruta' => $idruta]);
+$ubicacionesRuta = $stmtUbic->fetchAll(PDO::FETCH_ASSOC);
 
 $pageTitle   = 'Detalle de Ruta';
 $currentPage = 'dashboard_rutas';
@@ -278,7 +292,7 @@ require __DIR__ . '/../templates/header.php';
       <div class="col-lg-6">
         <div class="card">
           <div class="card-header">
-            <h3 class="card-title">Mapa de paradas de la ruta</h3>
+            <h3 class="card-title">Mapa de paradas y recorrido</h3>
           </div>
           <div class="card-body">
             <div id="map" style="width:100%;height:580px;border-radius:8px;"></div>
@@ -331,39 +345,44 @@ require __DIR__ . '/../templates/header.php';
   </div><!-- /.container-fluid -->
 </section>
 
-<!-- Google Maps (solo una vez en esta página) -->
-<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyC2Zm7v7BAdKaA-KAvna0q4y0lQgwvE1V4&libraries=geometry"></script>
+<!-- Google Maps API -->
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyC2Zm7v7BAdKaA-KAvna0q4y0lQgwvE1V4"></script>
 
 <script>
-// Datos para los gráficos
-const timelineData     = <?= json_encode($timelineData) ?>;
-const paradasChartData = <?= json_encode(array_values($personasPorParada)) ?>;
-const paradasMapa      = <?= json_encode($paradasMapa) ?>;
-const ubicacionBus    = <?= json_encode($ubicacion_bus) ?>;
+// Datos desde PHP
+const timelineData    = <?= json_encode($timelineData) ?>;
+const paradasAggData  = <?= json_encode($personasPorParada) ?>;
+const paradasMapa     = <?= json_encode($paradasMapa) ?>;
+const ubicacionesRuta = <?= json_encode($ubicacionesRuta) ?>;
+const idruta          = <?= (int)$idruta ?>;
 
-// -----------------------------
-// ECharts: Timeline de reportes
-// -----------------------------
+let map;
+let busMarker = null;
+
+/* ------------------------------------------------------
+   1) ECharts: Timeline de reportes
+-------------------------------------------------------*/
 function buildTimelineChart() {
   const el = document.getElementById('chartTimeline');
-  if (!el || !timelineData || !timelineData.length || typeof echarts === 'undefined') return;
-
+  if (!el) return;
   const chart = echarts.init(el);
+
+  const labels = timelineData.map(d => d.fecha);
+  const values = timelineData.map(d => d.total);
 
   const option = {
     tooltip: { trigger: 'axis' },
     xAxis: {
       type: 'category',
-      data: timelineData.map(i => i.fecha),
-      axisLabel: { rotate: timelineData.length > 6 ? 30 : 0 }
+      data: labels,
+      axisLabel: { rotate: labels.length > 5 ? 45 : 0 }
     },
     yAxis: { type: 'value', min: 0 },
     series: [{
       name: 'Personas',
       type: 'line',
       smooth: true,
-      areaStyle: {},
-      data: timelineData.map(i => i.total)
+      data: values
     }]
   };
 
@@ -371,34 +390,38 @@ function buildTimelineChart() {
   window.addEventListener('resize', () => chart.resize());
 }
 
-// ----------------------------------------
-// ECharts: Personas por parada (reportado vs estimado)
-// ----------------------------------------
+/* ------------------------------------------------------
+   2) ECharts: Personas por parada (reportado vs estimado)
+-------------------------------------------------------*/
 function buildParadasChart() {
   const el = document.getElementById('chartParadas');
-  if (!el || !paradasChartData || !paradasChartData.length || typeof echarts === 'undefined') return;
-
+  if (!el) return;
   const chart = echarts.init(el);
 
-  const labels    = paradasChartData.map(p => p.nombre);
-  const totales   = paradasChartData.map(p => p.total);
-  const estimados = paradasChartData.map(p => p.estimado);
+  const labels   = paradasAggData.map(p => p.nombre);
+  const reportes = paradasAggData.map(p => p.total);
+  const estimado = paradasAggData.map(p => p.estimado);
 
   const option = {
     tooltip: { trigger: 'axis' },
-    legend: { data: ['Reportado', 'Estimado'] },
+    legend: { data: ['Reportadas', 'Estimado'] },
     xAxis: {
       type: 'category',
       data: labels,
-      axisLabel: {
-        interval: 0,
-        rotate: labels.length > 6 ? 30 : 0
-      }
+      axisLabel: { rotate: labels.length > 5 ? 45 : 0 }
     },
     yAxis: { type: 'value', min: 0 },
     series: [
-      { name: 'Reportado', type: 'bar', data: totales },
-      { name: 'Estimado', type: 'bar', data: estimados }
+      {
+        name: 'Reportadas',
+        type: 'bar',
+        data: reportes
+      },
+      {
+        name: 'Estimado',
+        type: 'bar',
+        data: estimado
+      }
     ]
   };
 
@@ -406,108 +429,138 @@ function buildParadasChart() {
   window.addEventListener('resize', () => chart.resize());
 }
 
-// ----------------------
-// GOOGLE MAPS
-// ----------------------
-let map;
+/* ------------------------------------------------------
+   3) Marcador del bus
+-------------------------------------------------------*/
+function updateBusPosition(lat, lng) {
+  const pos = { lat: parseFloat(lat), lng: parseFloat(lng) };
 
+  if (!busMarker) {
+    busMarker = new google.maps.Marker({
+      map: map,
+      position: pos,
+      title: "Autobús"
+    });
+  } else {
+    busMarker.setPosition(pos);
+  }
+}
+
+/* ------------------------------------------------------
+   4) Obtener última ubicación del bus
+-------------------------------------------------------*/
+function fetchUltimaUbicacion() {
+  fetch('detalle_ruta.php?action=ultima_ubicacion&idruta=' + encodeURIComponent(idruta))
+    .then(r => r.json())
+    .then(data => {
+      if (!data || !data.lat || !data.lng) return;
+      updateBusPosition(data.lat, data.lng);
+    })
+    .catch(() => {});
+}
+
+/* ------------------------------------------------------
+   5) Google Maps: ruta planificada + recorrido real
+-------------------------------------------------------*/
 function initMap() {
   const mapEl = document.getElementById('map');
-  if (!mapEl || !paradasMapa || paradasMapa.length === 0) return;
+  if (!mapEl) return;
 
-  const center = {
-    lat: parseFloat(paradasMapa[0].latitud),
-    lng: parseFloat(paradasMapa[0].longitud)
-  };
+  // Centro inicial
+  let center = { lat: 13.6929, lng: -89.2182 };
+
+  if (paradasMapa.length > 0) {
+    center = {
+      lat: parseFloat(paradasMapa[0].latitud),
+      lng: parseFloat(paradasMapa[0].longitud)
+    };
+  } else if (ubicacionesRuta.length > 0) {
+    center = {
+      lat: parseFloat(ubicacionesRuta[0].lat),
+      lng: parseFloat(ubicacionesRuta[0].lng)
+    };
+  }
 
   map = new google.maps.Map(mapEl, {
     center,
-    zoom: 13
+    zoom: 11
   });
 
-  const directionsService  = new google.maps.DirectionsService();
-  const directionsRenderer = new google.maps.DirectionsRenderer({
-    map: map,
-    suppressMarkers: true
-  });
+  const bounds = new google.maps.LatLngBounds();
 
-  // Origen, destino y waypoints
-  const origen = {
-    lat: parseFloat(paradasMapa[0].latitud),
-    lng: parseFloat(paradasMapa[0].longitud)
-  };
+  // 5.1 Ruta planificada (paradas → polilínea azul)
+  const pathRuta = [];
 
-  const destino = {
-    lat: parseFloat(paradasMapa[paradasMapa.length - 1].latitud),
-    lng: parseFloat(paradasMapa[paradasMapa.length - 1].longitud)
-  };
-
-  let waypoints = [];
-  for (let i = 1; i < paradasMapa.length - 1; i++) {
-    waypoints.push({
-      location: {
-        lat: parseFloat(paradasMapa[i].latitud),
-        lng: parseFloat(paradasMapa[i].longitud)
-      },
-      stopover: true
-    });
-  }
-
-  directionsService.route(
-    {
-      origin: origen,
-      destination: destino,
-      waypoints: waypoints,
-      travelMode: google.maps.TravelMode.DRIVING
-    },
-    function (result, status) {
-      if (status === google.maps.DirectionsStatus.OK) {
-        directionsRenderer.setDirections(result);
-      } else {
-        console.error("Error Directions:", status);
-      }
-    }
-  );
-
-  // Marcadores
   paradasMapa.forEach(p => {
+    const pos = {
+      lat: parseFloat(p.latitud),
+      lng: parseFloat(p.longitud)
+    };
+    pathRuta.push(pos);
+    bounds.extend(pos);
+
     new google.maps.Marker({
-      position: {
-        lat: parseFloat(p.latitud),
-        lng: parseFloat(p.longitud)
-      },
+      position: pos,
       map,
       label: p.orden ? String(p.orden) : undefined,
       title: p.punto_abordaje || 'Parada'
     });
   });
-  // Marcador última ubicación del bus
-  // Marcador del BUS (ubicación actual)
-if (ubicacionBus && ubicacionBus.lat && ubicacionBus.lng) {
-  const busPos = {
-    lat: parseFloat(ubicacionBus.lat),
-    lng: parseFloat(ubicacionBus.lng)
-  };
 
-  new google.maps.Marker({
-    position: busPos,
-    map,
-    title: "Ubicación actual del bus",
-    icon: {
-      url:  "https://maps.gstatic.com/mapfiles/ms2/micons/bus.png",
-      scaledSize: new google.maps.Size(40, 40)
-    }
+  if (pathRuta.length > 1) {
+    const routeLine = new google.maps.Polyline({
+      path: pathRuta,
+      geodesic: true,
+      strokeColor: '#4285F4',   // Azul
+      strokeOpacity: 0.9,
+      strokeWeight: 3
+    });
+    routeLine.setMap(map);
+  }
+
+  // 5.2 Recorrido real (ubicaciones → polilínea verde)
+  const pathBus = [];
+
+  ubicacionesRuta.forEach(u => {
+    if (!u.lat || !u.lng) return;
+    const pos = {
+      lat: parseFloat(u.lat),
+      lng: parseFloat(u.lng)
+    };
+    pathBus.push(pos);
+    bounds.extend(pos);
   });
 
-  // Opcional: centrar el mapa en la ubicación del bus
-  map.setCenter(busPos);
+  if (pathBus.length > 1) {
+    const busLine = new google.maps.Polyline({
+      path: pathBus,
+      geodesic: true,
+      strokeColor: '#28a745',   // Verde
+      strokeOpacity: 0.9,
+      strokeWeight: 3
+    });
+    busLine.setMap(map);
+  }
+
+  // 5.3 Colocar el bus en la última ubicación conocida
+  if (pathBus.length > 0) {
+    const last = pathBus[pathBus.length - 1];
+    updateBusPosition(last.lat, last.lng);
+  }
+
+  // Ajustar vista para que quepa todo
+  if (!bounds.isEmpty()) {
+    map.fitBounds(bounds);
+  }
+
+  // Primer fetch de ubicación del bus y luego cada 60 s
+  fetchUltimaUbicacion();
+  setInterval(fetchUltimaUbicacion, 60000);
 }
 
-}
-
-// ----------------------
-// INICIO
-// ----------------------
+/* ------------------------------------------------------
+   6) Inicialización
+-------------------------------------------------------*/
 document.addEventListener('DOMContentLoaded', () => {
   buildTimelineChart();
   buildParadasChart();
@@ -517,3 +570,4 @@ document.addEventListener('DOMContentLoaded', () => {
 
 <?php
 require __DIR__ . '/../templates/footer.php';
+?>
