@@ -177,19 +177,17 @@ if ($formStep === 'config_bus') {
 // ==================================================
 // 2) FORM: Primer reporte “Salida hacia el estadio”
 // ==================================================
-elseif ($formStep === 'primer_reporte') {
+// ---------- FORM 2: Primer reporte “Salida hacia el estadio” ----------
+if ($formStep === 'primer_reporte' && $idAccionSalida) {
 
-    if (!$configBus) {
-        $errors[] = 'Debe configurar primero el autobús antes de enviar el primer reporte.';
-    }
-
-    if (!$idAccionSalida) {
-        $errors[] = 'No se encontró la acción "Salida hacia el estadio".';
-    }
-
-    // Seguridad extra: evitar duplicado
+    // Seguridad extra: si ya existe, NO permitir duplicado aunque fuercen el POST
     if ($tienePrimerReporte) {
-        $errors[] = 'El primer reporte ya fue enviado hoy para esta ruta.';
+        $errors[] = "El primer reporte ('Salida hacia el estadio') ya fue enviado hoy.";
+    }
+
+    // Validar que exista al menos una parada configurada
+    if (!$idParadaDefault) {
+        $errors[] = 'La ruta no tiene paradas configuradas. Contacte al área de soporte.';
     }
 
     $totalPersonas = isset($_POST['total_personas']) ? (int)$_POST['total_personas'] : 0;
@@ -207,47 +205,47 @@ elseif ($formStep === 'primer_reporte') {
                      total_personas, total_becarios, total_menores12,
                      comentario, fecha_reporte)
                 VALUES
-                    (:idruta, NULL, NULL, :idaccion,
+                    (:idruta, NULL, :idparada, :idaccion,
                      :total, 0, 0,
                      :comentario, NOW())
             ");
             $stmt->execute([
                 ':idruta'     => $idruta,
+                ':idparada'   => $idParadaDefault,
                 ':idaccion'   => $idAccionSalida,
                 ':total'      => $totalPersonas,
                 ':comentario' => $comentario
             ]);
 
-            $success  = true;
-            $nextStep = 'nuevo_reporte';
+            $success            = 'Primer reporte registrado correctamente (Salida hacia el estadio).';
+            $tienePrimerReporte = true;
         } catch (Throwable $e) {
             $errors[] = 'Error al guardar el primer reporte.';
         }
     }
 }
 
+
 // ==================================================
 // 3) FORM: Nuevo reporte general
 // ==================================================
-elseif ($formStep === 'nuevo_reporte') {
-
-    if (!$configBus) {
-        $errors[] = 'Debe configurar primero el autobús.';
-    }
-
-    if (!$tienePrimerReporte) {
-        $errors[] = 'Debe enviar primero el reporte "Salida hacia el estadio".';
-    }
-
+// ---------- FORM 3: Nuevo reporte general ----------
+if ($formStep === 'nuevo_reporte') {
     $idaccion      = isset($_POST['idaccion']) ? (int)$_POST['idaccion'] : 0;
-    $totalPersonas = ($_POST['total_personas'] ?? '') !== '' ? (int)$_POST['total_personas'] : 0;
+    $totalPersonas = ($_POST['total_personas'] ?? '') !== ''
+                        ? (int)$_POST['total_personas'] : 0;
     $comentario    = trim($_POST['comentario'] ?? '');
 
     if ($idaccion <= 0) {
-        $errors[] = 'Debe seleccionar un tipo de reporte.';
+        $errors[] = 'Debe seleccionar el tipo de reporte.';
     }
 
-    // Buscar nombre de la acción para decidir si requiere personas
+    // Validar que exista al menos una parada configurada
+    if (!$idParadaDefault) {
+        $errors[] = 'La ruta no tiene paradas configuradas. Contacte al área de soporte.';
+    }
+
+    // Buscar nombre de la acción para aplicar la misma regla de negocio que en el front
     $nombreAccion = null;
     if ($idaccion > 0) {
         foreach ($acciones as $a) {
@@ -272,24 +270,25 @@ elseif ($formStep === 'nuevo_reporte') {
                      total_personas, total_becarios, total_menores12,
                      comentario, fecha_reporte)
                 VALUES
-                    (:idruta, NULL, NULL, :idaccion,
+                    (:idruta, NULL, :idparada, :idaccion,
                      :total, 0, 0,
                      :comentario, NOW())
             ");
             $stmt->execute([
                 ':idruta'     => $idruta,
+                ':idparada'   => $idParadaDefault,
                 ':idaccion'   => $idaccion,
                 ':total'      => $totalPersonas,
                 ':comentario' => $comentario
             ]);
 
-            $success  = true;
-            $nextStep = 'nuevo_reporte'; // se queda en el mismo form
+            $success = 'Reporte registrado correctamente.';
         } catch (Throwable $e) {
             $errors[] = 'Error al guardar el reporte.';
         }
     }
 }
+
 
 // ==================================================
 // Respuesta JSON
