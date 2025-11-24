@@ -431,10 +431,12 @@ $accionesRequierenPersonasJs = json_encode($accionesRequierenPersonas);
 
           <div class="form-group">
             <label for="telefono_motorista">Teléfono del conductor</label>
-            <input type="text"
+            <input type="number"
                    name="telefono_motorista"
                    id="telefono_motorista"
                    class="form-control"
+                   min="50000000"
+                   max="89999999"
                    required>
           </div>
 
@@ -445,7 +447,8 @@ $accionesRequierenPersonasJs = json_encode($accionesRequierenPersonas);
                    id="capacidad_aprox"
                    class="form-control"
                    min="0"
-                   placeholder="Ej. 100">
+                   max="100"
+                   placeholder="Ejemplo. 100">
           </div>
 
           <div class="form-group">
