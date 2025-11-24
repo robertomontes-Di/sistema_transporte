@@ -26,10 +26,10 @@ if (isset($_GET['action']) && $_GET['action'] === 'ultima_ubicacion') {
 
     try {
         $sql = "
-            SELECT lat, lng
+            SELECT lat, lng, fecha_registro
             FROM ubicaciones
             WHERE idruta = :idruta
-            ORDER BY fecha DESC
+            ORDER BY fecha_registro DESC
             LIMIT 1
         ";
         $stmt = $pdo->prepare($sql);
@@ -176,10 +176,10 @@ $sqlUbic = "
     SELECT 
         lat,
         lng,
-        fecha
+        fecha_registro
     FROM ubicaciones
     WHERE idruta = :idruta
-    ORDER BY fecha ASC
+    ORDER BY fecha_registro ASC
 ";
 $stmtUbic = $pdo->prepare($sqlUbic);
 $stmtUbic->execute([':idruta' => $idruta]);
