@@ -133,10 +133,6 @@ require __DIR__ . '/../templates/header.php';
           <!-- Formulario para asignar / cambiar clave -->
           <div class="col-md-5 border-right">
             <h5>Configurar clave de acceso</h5>
-            <p class="text-muted mb-2">
-              La clave se utiliza en <code>/reporte/index.php</code> para que el líder de ruta pueda ingresar.
-              Por defecto puede ser el teléfono del líder, pero se puede cambiar si lo requieren.
-            </p>
 
             <form id="formClaveRuta" autocomplete="off">
               <div class="form-group">

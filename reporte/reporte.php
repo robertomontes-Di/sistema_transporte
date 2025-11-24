@@ -644,7 +644,8 @@ function normalize(str) {
             if (data && data.success) {
               alert('Ubicación enviada correctamente.');
             } else {
-              alert('Error al guardar la ubicación.');
+              const msg = data && data.msg ? data.msg : 'Error al guardar la ubicación.';
+              alert(msg);
             }
           })
           .catch(() => {
