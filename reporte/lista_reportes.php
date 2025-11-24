@@ -6,11 +6,15 @@ error_reporting(E_ALL);
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/config.php';
 
-if (!isset($_GET['idruta']) || empty($_GET['idruta'])) {
+
+
+$idruta = isset($_GET['idruta'])
+    ? intval($_GET['idruta'])
+    : (isset($_SESSION['idruta']) ? intval($_SESSION['idruta']) : 0);
+    
+    if (!isset($idruta) || empty($idruta) || $idruta <= 0) {
     die("Ruta no válida.");
 }
-
-$idruta = (int)$_GET['idruta'];
 
 /* Obtener nombre de la ruta */
 $sql_ruta = "SELECT nombre FROM ruta WHERE idruta = ?";
@@ -59,9 +63,7 @@ require __DIR__ . '/../templates/header.php';
         <a href="<?= BASE_URL ?>/monitoreo/index.php?idruta=<?= $idruta ?>" class="btn btn-sm btn-primary mt-2">
           <i class="fas fa-plus-circle mr-1"></i> Crear nuevo reporte
         </a>
-        <button id="btnUbicacion" class="btn btn-sm btn-success mt-2">
-          <i class="fas fa-map-marker-alt mr-1"></i> Guardar mi ubicación
-        </button>
+       
       </div>
     </div>
   </div>
@@ -119,46 +121,6 @@ require __DIR__ . '/../templates/header.php';
   </div>
 </section>
 
-<script>
-// Botón "Guardar mi ubicación"
-document.addEventListener('DOMContentLoaded', function () {
-  const btn = document.getElementById("btnUbicacion");
-  if (!btn) return;
-
-  btn.addEventListener("click", () => {
-    if (!navigator.geolocation) {
-      alert("La geolocalización no es soportada por este navegador.");
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        const idruta = <?= $idruta ?>;
-
-        fetch("guardar_ubicacion.php", {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: `lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}&idruta=${encodeURIComponent(idruta)}`
-        })
-        .then(r => r.json())
-        .then(res => {
-          if (res.success) {
-            alert("Ubicación guardada correctamente.");
-          } else {
-            alert("Error al guardar ubicación: " + (res.msg || ''));
-          }
-        })
-        .catch(() => alert("Error de comunicación con el servidor."));
-      },
-      (error) => {
-        alert("No se pudo obtener la ubicación: " + error.message);
-      }
-    );
-  });
-});
-</script>
 
 <?php
 require __DIR__ . '/../templates/footer.php';
