@@ -62,7 +62,6 @@ try {
 }
 
 // ¿Ya existe un reporte “Salida hacia el estadio” HOY para esta ruta?
-// (primer reporte por día)
 $tienePrimerReporte = false;
 if ($idAccionSalida) {
     try {
@@ -83,7 +82,6 @@ if ($idAccionSalida) {
     }
 }
 
-
 // ===============================
 // 4) Cargar lista de acciones para el form principal
 // ===============================
@@ -95,11 +93,98 @@ try {
     $acciones = [];
 }
 
+// Mapa: idaccion => nombre normalizado (para reglas en backend)
+$accionesNombrePorId = [];
+foreach ($acciones as $a) {
+    $id = (int)$a['idaccion'];
+    $accionesNombrePorId[$id] = mb_strtolower(trim($a['nombre'] ?? ''), 'UTF-8');
+}
+
+/**
+ * AGRUPAR ACCIONES POR CATEGORÍA (solo frontend)
+ */
+$accionesPorGrupo = [
+    'ruta'       => [],
+    'incidencia' => [],
+    'emergencia' => [],
+    'asistencia' => [],
+    'vehiculo'   => [],
+    'otro'       => [],
+    'otras'      => [],
+];
+
+foreach ($acciones as $a) {
+    $nombreRaw = $a['nombre'] ?? '';
+    $nombre    = mb_strtolower(trim($nombreRaw), 'UTF-8');
+
+    if (in_array($nombre, [
+        'salida hacia el estadio',
+        'llegada a parada',
+        'salida de parada',
+        'regreso a casa',
+    ], true)) {
+        $accionesPorGrupo['ruta'][] = $a;
+    } elseif (in_array($nombre, [
+        'tráfico en carretera',
+        'trafico en carretera',
+        'accidente en carretera',
+        'modificacion de ruta por imprevisto',
+        'modificación de ruta por imprevisto',
+        'retraso de la unidad de transporte',
+        'retraso por apoyo a otra ruta',
+        'retraso por espera de beneficiarios',
+        'ruta cancelada',
+    ], true)) {
+        $accionesPorGrupo['incidencia'][] = $a;
+    } elseif ($nombre === 'atencion de emergencia medica' || $nombre === 'atención de emergencia médica') {
+        $accionesPorGrupo['emergencia'][] = $a;
+    } elseif (in_array($nombre, [
+        'instrucciones erróneas sobre la ruta',
+        'instrucciones erroneas sobre la ruta',
+        'desconocimiento de la ruta por parte del motorista',
+    ], true)) {
+        $accionesPorGrupo['asistencia'][] = $a;
+    } elseif (in_array($nombre, [
+        'desperfectos mecanicos',
+        'desperfectos mecánicos',
+        'motorista con problemas de salud',
+    ], true)) {
+        $accionesPorGrupo['vehiculo'][] = $a;
+    } elseif (mb_strpos($nombre, 'otro') !== false) {
+        $accionesPorGrupo['otro'][] = $a;
+    } else {
+        $accionesPorGrupo['otras'][] = $a;
+    }
+}
+
 // ===============================
-// 5) Manejo de formularios (POST)
+// 5) Cargar paradas de la ruta (para el select en nuevo reporte)
+// ===============================
+$paradasRuta = [];
+try {
+    $stmt = $pdo->prepare("
+        SELECT idparada, punto_abordaje, orden
+        FROM paradas
+        WHERE idruta = :idruta
+        ORDER BY orden ASC
+    ");
+    $stmt->execute([':idruta' => $idruta]);
+    $paradasRuta = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Throwable $e) {
+    $paradasRuta = [];
+}
+
+// ===============================
+// 6) Manejo de formularios (POST)
 // ===============================
 $errors  = [];
 $success = null;
+
+// listas de reglas para backend
+$accionesQueRequierenParadaPHP = [
+    'llegada a parada',
+    'salida de parada',
+];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $formStep = $_POST['form_step'] ?? '';
@@ -136,7 +221,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ]);
 
                 $success   = 'Datos del autobús guardados correctamente.';
-                // Recargar la config para que el paso cambie
                 $configBus = [
                     'nombre_motorista'   => $nombreMotorista,
                     'telefono_motorista' => $telMotorista,
@@ -187,9 +271,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $totalPersonas = ($_POST['total_personas'] ?? '') !== ''
                             ? (int)$_POST['total_personas'] : 0;
         $comentario    = trim($_POST['comentario'] ?? '');
+        $idparada      = isset($_POST['idparada']) && $_POST['idparada'] !== ''
+                            ? (int)$_POST['idparada'] : null;
 
         if ($idaccion <= 0) {
             $errors[] = 'Debe seleccionar el tipo de reporte.';
+        }
+
+        // Determinar si esta acción requiere parada (según nombre)
+        $nombreAccionSel = $accionesNombrePorId[$idaccion] ?? '';
+        $requiereParada  = in_array($nombreAccionSel, $accionesQueRequierenParadaPHP, true);
+
+        if ($requiereParada && !$idparada) {
+            $errors[] = 'Debe seleccionar la parada para este tipo de reporte.';
         }
 
         if (!$errors) {
@@ -198,10 +292,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     INSERT INTO reporte
                         (idruta, idagente, idparada, idaccion, total_personas, total_becarios, total_menores12, comentario, fecha_reporte)
                     VALUES
-                        (:idruta, NULL, NULL, :idaccion, :total, 0, 0, :comentario, NOW())
+                        (:idruta, NULL, :idparada, :idaccion, :total, 0, 0, :comentario, NOW())
                 ");
                 $stmt->execute([
                     ':idruta'     => $idruta,
+                    ':idparada'   => $idparada,
                     ':idaccion'   => $idaccion,
                     ':total'      => $totalPersonas,
                     ':comentario' => $comentario
@@ -216,7 +311,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // ===============================
-// 6) Determinar paso actual de la vista
+// 7) Determinar paso actual de la vista
 // ===============================
 $step = 'main';
 if (!$configBus) {
@@ -371,11 +466,10 @@ if (!$configBus) {
         </form>
 
       <!-- Paso 3: Nuevo reporte + botón Enviar ubicación -->
-            <!-- Paso 3: Nuevo reporte + (opcional) botón Enviar ubicación -->
       <?php else: ?>
         <h6 class="mb-3">Nuevo reporte</h6>
         <p class="text-muted">
-          Envíe reportes de ruta, incidencias o emergencias.
+          Envíe reportes de ruta, incidencias o emergencias. Use el botón verde para mandar solo ubicación.
         </p>
 
         <form method="post" autocomplete="off" id="formNuevoReporte">
@@ -385,17 +479,112 @@ if (!$configBus) {
             <label for="idaccion">Tipo de reporte</label>
             <select name="idaccion" id="idaccion" class="form-control" required>
               <option value="">Seleccione…</option>
-              <?php foreach ($acciones as $a): ?>
-                <option value="<?= (int)$a['idaccion'] ?>"
-                        data-nombre="<?= htmlspecialchars($a['nombre']) ?>">
-                  <?= htmlspecialchars($a['nombre']) ?>
-                </option>
-              <?php endforeach; ?>
+
+              <?php if (!empty($accionesPorGrupo['ruta'])): ?>
+                <optgroup label="Reporte de Ruta">
+                  <?php foreach ($accionesPorGrupo['ruta'] as $a): ?>
+                    <option value="<?= (int)$a['idaccion'] ?>"
+                            data-nombre="<?= htmlspecialchars($a['nombre']) ?>"
+                            data-grupo="ruta">
+                      <?= htmlspecialchars($a['nombre']) ?>
+                    </option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
+
+              <?php if (!empty($accionesPorGrupo['incidencia'])): ?>
+                <optgroup label="Reporte de Incidencia">
+                  <?php foreach ($accionesPorGrupo['incidencia'] as $a): ?>
+                    <option value="<?= (int)$a['idaccion'] ?>"
+                            data-nombre="<?= htmlspecialchars($a['nombre']) ?>"
+                            data-grupo="incidencia">
+                      <?= htmlspecialchars($a['nombre']) ?>
+                    </option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
+
+              <?php if (!empty($accionesPorGrupo['emergencia'])): ?>
+                <optgroup label="Reporte de Emergencia">
+                  <?php foreach ($accionesPorGrupo['emergencia'] as $a): ?>
+                    <option value="<?= (int)$a['idaccion'] ?>"
+                            data-nombre="<?= htmlspecialchars($a['nombre']) ?>"
+                            data-grupo="emergencia">
+                      <?= htmlspecialchars($a['nombre']) ?>
+                    </option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
+
+              <?php if (!empty($accionesPorGrupo['asistencia'])): ?>
+                <optgroup label="Necesito Asistencia">
+                  <?php foreach ($accionesPorGrupo['asistencia'] as $a): ?>
+                    <option value="<?= (int)$a['idaccion'] ?>"
+                            data-nombre="<?= htmlspecialchars($a['nombre']) ?>"
+                            data-grupo="asistencia">
+                      <?= htmlspecialchars($a['nombre']) ?>
+                    </option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
+
+              <?php if (!empty($accionesPorGrupo['vehiculo'])): ?>
+                <optgroup label="Reporte del estado del vehículo">
+                  <?php foreach ($accionesPorGrupo['vehiculo'] as $a): ?>
+                    <option value="<?= (int)$a['idaccion'] ?>"
+                            data-nombre="<?= htmlspecialchars($a['nombre']) ?>"
+                            data-grupo="vehiculo">
+                      <?= htmlspecialchars($a['nombre']) ?>
+                    </option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
+
+              <?php if (!empty($accionesPorGrupo['otro'])): ?>
+                <optgroup label="Otro">
+                  <?php foreach ($accionesPorGrupo['otro'] as $a): ?>
+                    <option value="<?= (int)$a['idaccion'] ?>"
+                            data-nombre="<?= htmlspecialchars($a['nombre']) ?>"
+                            data-grupo="otro">
+                      <?= htmlspecialchars($a['nombre']) ?>
+                    </option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
+
+              <?php if (!empty($accionesPorGrupo['otras'])): ?>
+                <optgroup label="Otras acciones">
+                  <?php foreach ($accionesPorGrupo['otras'] as $a): ?>
+                    <option value="<?= (int)$a['idaccion'] ?>"
+                            data-nombre="<?= htmlspecialchars($a['nombre']) ?>"
+                            data-grupo="otras">
+                      <?= htmlspecialchars($a['nombre']) ?>
+                    </option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
+
             </select>
           </div>
 
+          <!-- NUEVO: Select de parada (solo para llegada/salida de parada) -->
+          <div class="form-group" id="grupo_parada" style="display:none;">
+            <label for="idparada" id="label_parada">Parada (si aplica)</label>
+            <select name="idparada" id="idparada" class="form-control">
+              <option value="">Seleccione parada…</option>
+              <?php foreach ($paradasRuta as $p): ?>
+                <option value="<?= (int)$p['idparada'] ?>">
+                  <?= htmlspecialchars(($p['orden'] ?? '') . '. ' . ($p['punto_abordaje'] ?? 'Parada')) ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+            <small class="form-text text-muted">
+              Solo se requiere para acciones de llegada/salida en una parada específica.
+            </small>
+          </div>
+
           <div class="form-group">
-            <label for="total_personas">Cantidad de personas (si aplica)</label>
+            <label for="total_personas_main" id="label_total_personas">Cantidad de personas (si aplica)</label>
             <input type="number" name="total_personas" id="total_personas_main"
                    class="form-control" min="0" disabled>
             <small class="form-text text-muted">
@@ -404,7 +593,7 @@ if (!$configBus) {
           </div>
 
           <div class="form-group">
-            <label for="comentario">Comentario (opcional)</label>
+            <label for="comentario_main" id="label_comentario">Comentario (opcional)</label>
             <input type="text" name="comentario" id="comentario_main"
                    class="form-control">
           </div>
@@ -414,24 +603,15 @@ if (!$configBus) {
           </button>
         </form>
 
-        <?php if ($tienePrimerReporte): ?>
-          <hr>
+        <hr>
 
-          <button type="button" class="btn btn-ubicacion btn-block" id="btnUbicacion">
-            Enviar ubicación
-          </button>
+        <button type="button" class="btn btn-ubicacion btn-block" id="btnUbicacion">
+          Enviar ubicación
+        </button>
 
-          <small class="text-muted d-block mt-2">
-            Este botón solo envía la posición GPS de la unidad (sin crear un nuevo evento de reporte).
-            Solo está disponible después de registrar la “Salida hacia el estadio”.
-          </small>
-        <?php else: ?>
-          <hr>
-          <small class="text-muted d-block">
-            El botón “Enviar ubicación” se habilitará automáticamente cuando registre el
-            primer reporte de “Salida hacia el estadio”.
-          </small>
-        <?php endif; ?>
+        <small class="text-muted d-block mt-2">
+          Este botón solo envía la posición GPS de la unidad (sin crear un nuevo evento de reporte).
+        </small>
 
       <?php endif; ?>
 
@@ -441,33 +621,97 @@ if (!$configBus) {
 
 <script>
 /**
- * Habilitar / deshabilitar campo de personas según el nombre de la acción.
- * Ajusta los textos si cambian los nombres en la tabla `acciones`.
+ * FRONTEND:
+ * - Agrupa visualmente las acciones (ya está en el HTML con <optgroup>).
+ * - Habilita/deshabilita "Cantidad de personas" según la acción.
+ * - Marca comentario obligatorio para "Otro (especifique)".
+ * - Muestra/oculta el select de PARADA para llegada/salida de parada.
  */
 (function() {
-  const selectAccion = document.getElementById('idaccion');
-  const inputPersonas = document.getElementById('total_personas_main');
-  if (selectAccion && inputPersonas) {
+  const selectAccion   = document.getElementById('idaccion');
+  const inputPersonas  = document.getElementById('total_personas_main');
+  const labelPersonas  = document.getElementById('label_total_personas');
+  const inputComent    = document.getElementById('comentario_main');
+  const labelComent    = document.getElementById('label_comentario');
+
+  const grupoParada    = document.getElementById('grupo_parada');
+  const selectParada   = document.getElementById('idparada');
+  const labelParada    = document.getElementById('label_parada');
+
+  // Acciones que requieren cantidad de personas
+  const accionesQueRequierenPersonas = [
+    'salida hacia el estadio',
+    'salida de parada'
+  ];
+
+  // Acciones que requieren una parada
+  const accionesQueRequierenParada = [
+    'llegada a parada',
+    'salida de parada'
+  ];
+
+  function normalizarNombre(nombre) {
+    return (nombre || '').toLowerCase().trim();
+  }
+
+  function accionRequierePersonas(nombre) {
+    const n = normalizarNombre(nombre);
+    return accionesQueRequierenPersonas.some(txt => n.includes(txt));
+  }
+
+  function accionRequiereParada(nombre) {
+    const n = normalizarNombre(nombre);
+    return accionesQueRequierenParada.some(txt => n.includes(txt));
+  }
+
+  function accionRequiereComentarioObligatorio(nombre) {
+    const n = normalizarNombre(nombre);
+    // Criterio simple: acciones que contengan la palabra "otro"
+    return n.includes('otro');
+  }
+
+  if (selectAccion) {
     selectAccion.addEventListener('change', function() {
-      const opt = selectAccion.options[selectAccion.selectedIndex];
-      const nombre = (opt.getAttribute('data-nombre') || '').toLowerCase();
+      const opt    = this.options[this.selectedIndex];
+      const nombre = opt ? (opt.getAttribute('data-nombre') || '') : '';
 
-      // Acciones donde queremos pedir cantidad de personas
-      const requierePersonas = [
-        'salida hacia el estadio',
-        'salida de parada'
-      ];
-
-      let habilitar = false;
-      requierePersonas.forEach(txt => {
-        if (nombre.includes(txt)) habilitar = true;
-      });
-
-      if (habilitar) {
+      // 1) Personas
+      if (accionRequierePersonas(nombre)) {
         inputPersonas.disabled = false;
+        if (labelPersonas) {
+          labelPersonas.textContent = 'Cantidad de personas *';
+        }
       } else {
         inputPersonas.value = '';
         inputPersonas.disabled = true;
+        if (labelPersonas) {
+          labelPersonas.textContent = 'Cantidad de personas (si aplica)';
+        }
+      }
+
+      // 2) Comentario obligatorio para "Otro"
+      if (inputComent && labelComent) {
+        if (accionRequiereComentarioObligatorio(nombre)) {
+          inputComent.required = true;
+          labelComent.textContent = 'Comentario (obligatorio para este tipo de reporte)';
+        } else {
+          inputComent.required = false;
+          labelComent.textContent = 'Comentario (opcional)';
+        }
+      }
+
+      // 3) Parada obligatoria para llegada/salida de parada
+      if (grupoParada && selectParada && labelParada) {
+        if (accionRequiereParada(nombre)) {
+          grupoParada.style.display = 'block';
+          selectParada.required = true;
+          labelParada.textContent = 'Parada *';
+        } else {
+          grupoParada.style.display = 'none';
+          selectParada.required = false;
+          selectParada.value = '';
+          labelParada.textContent = 'Parada (si aplica)';
+        }
       }
     });
   }
@@ -486,8 +730,8 @@ if (!$configBus) {
 
       navigator.geolocation.getCurrentPosition(
         function(pos) {
-          const lat = pos.coords.latitude;
-          const lng = pos.coords.longitude;
+          const lat    = pos.coords.latitude;
+          const lng    = pos.coords.longitude;
           const idruta = <?= (int)$idruta ?>;
 
           fetch('guardar_ubicacion.php', {
