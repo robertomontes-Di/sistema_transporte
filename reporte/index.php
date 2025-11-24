@@ -151,13 +151,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </head>
 <body>
 
-<<<<<<< Updated upstream
 <div class="login-container">
   <div class="card login-card">
     <div class="card-header text-center">
       <h5 class="mb-0">Ingreso para reporte de ruta</h5>
       <small>Seleccione su ruta e ingrese la clave del líder</small>
-=======
 <div class="report-wrapper">
 
   <div class="report-card">
@@ -245,7 +243,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
   
 </div>
->>>>>>> Stashed changes
     </div>
     <div class="card-body">
 
@@ -283,9 +280,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       </form>
     </div>
   </div>
-<<<<<<< Updated upstream
 </div>
-=======
 
 </div> <!-- /.report-wrapper -->
 
@@ -528,7 +523,6 @@ setInterval(() => {
 // Footer global del sistema (JS de AdminLTE, etc.)
 require "../templates/footer.php";
 ?>
->>>>>>> Stashed changes
 
 </body>
 </html>
