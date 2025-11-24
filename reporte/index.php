@@ -151,11 +151,101 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </head>
 <body>
 
+<<<<<<< Updated upstream
 <div class="login-container">
   <div class="card login-card">
     <div class="card-header text-center">
       <h5 class="mb-0">Ingreso para reporte de ruta</h5>
       <small>Seleccione su ruta e ingrese la clave del líder</small>
+=======
+<div class="report-wrapper">
+
+  <div class="report-card">
+
+    <div class="card card-info">
+      <div class="card-header">
+        <h3 class="card-title mb-0">Nuevo reporte de ruta</h3>
+      </div>
+
+      <form id="formReporte">
+        <div class="card-body">
+
+          <p class="text-muted mb-3">
+            Completa los datos para registrar el evento reportado por el personal en ruta.
+          </p>
+
+          <div id="ajaxError" class="alert alert-danger py-2 px-3 mb-3" style="display:none;"></div>
+
+          <!-- Selección de ruta -->
+          <div class="form-group" style="display:none;">
+            <label for="ruta">Ruta2</label>
+            <select id="ruta" name="idruta" class="form-control" required >
+              <option value="">Seleccione una ruta</option>
+              <?php foreach ($rutas as $r): ?>
+                <option value="<?= $r['idruta'] ?>"
+                  <?= $selectedRuta === (int)$r['idruta'] ? 'selected' : '' ?>>
+                  <?= htmlspecialchars($r['nombre']) ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+
+          <input type="hidden" id="idparada" name="idparada" value="">
+
+          <!-- Encargado -->
+          <div id="boxEncargado" class="mb-3" style="display:none;">
+            <label class="font-weight-bold d-block">Encargado de ruta</label>
+            <div id="lblEncargado" class="text-muted"></div>
+          </div>
+
+          <!-- Parada actual -->
+          <div id="boxParada" class="mb-3" style="display:none;">
+            <label class="font-weight-bold d-block">Parada actual</label>
+            <div id="lblParada" class="text-muted"></div>
+          </div>
+
+          <!-- Acción -->
+          <div id="boxAcciones" class="form-group" style="display:none;">
+            <label for="accion">Acción</label>
+            <select id="accion" name="idaccion" class="form-control"></select>
+          </div>
+
+          <!-- Personas -->
+          <div class="form-group">
+            <label for="total_personas">Cantidad de personas</label>
+            <input type="number" min="0" max="100" id="total_personas" name="total_personas"
+                   class="form-control" required>
+          </div>
+
+          <!-- Comentario -->
+          <div class="form-group">
+            <label for="comentario">Comentario</label>
+            <input type="text" id="comentario" name="comentario" class="form-control"
+                   placeholder="Detalle breve del evento (opcional)">
+          </div>
+
+        </div>
+
+        <div class="card-footer d-flex justify-content-between">
+          <a href="../index.php" class="btn btn-secondary">Cancelar</a>
+          <div>
+           
+            <button type="submit" class="btn btn-primary">
+              Guardar
+            </button>
+              </div>
+             
+        </div>
+
+      </form>
+<div class="card-footer d-flex justify-content-around">
+    <button type="button" id="btnListaReportes" class="btn btn-success">
+        Mis reportes
+    </button>
+
+  
+</div>
+>>>>>>> Stashed changes
     </div>
     <div class="card-body">
 
@@ -193,7 +283,252 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       </form>
     </div>
   </div>
+<<<<<<< Updated upstream
 </div>
+=======
+
+</div> <!-- /.report-wrapper -->
+
+<!-- jQuery para el AJAX del form -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+
+<script>
+$(function () {
+
+    $("#formReporte").on("submit", function(e) {
+        e.preventDefault();
+
+           // VALIDAR ACCIÓN
+    let accion = $("#accion").val();
+    if (!accion || accion === "") {
+        alert("Debe seleccionar una acción antes de guardar.");
+        $("#accion").focus();
+        return; // Detiene el envío
+    }
+        let btn = $("button[type=submit]");
+        btn.prop("disabled", true).text("Guardando...");
+
+        $.ajax({
+            url: "guardar.php",
+            method: "POST",
+            data: $(this).serialize(),
+            dataType: "json",
+            success: function(resp) {
+                btn.prop("disabled", false).text("Guardar");
+
+                if (resp.success) {
+                    alert(resp.message || "Reporte guardado.");
+                    if (resp.redirect) window.location = resp.redirect;
+                } else {
+                    alert(resp.error || "Error al guardar.");
+                }
+            },
+            error: function() {
+                btn.prop("disabled", false).text("Guardar");
+                alert("Error del servidor.");
+            }
+        });
+    });
+
+    $("#ruta").on("change", function () {
+
+        $("#ajaxError").hide().text('');
+        $("#boxEncargado, #boxParada, #boxAcciones").hide();
+        $("#idparada").val("");
+
+        var idruta = $(this).val();
+
+        if (!idruta) {
+            $("#btnListaReportes").hide().removeAttr('data-href');
+            return;
+        }
+
+        $.ajax({
+            url: "ruta_info.php",
+            data: { idruta: idruta },
+            type: "GET",
+            dataType: "json",
+            success: function (data) {
+
+                if (data.encargado) {
+                    $("#lblEncargado").text(
+                        data.encargado.nombre + " (Tel: " + data.encargado.telefono + ")"
+                    );
+                    $("#boxEncargado").fadeIn();
+                }
+
+                if (data.parada) {
+                    $("#lblParada").text(data.parada.punto_abordaje);
+                    $("#idparada").val(data.parada.idparada);
+                    $("#boxParada").fadeIn();
+                }
+
+                $("#accion").empty();
+                if (Array.isArray(data.acciones) && data.acciones.length > 0) {
+                     $("#accion").append(
+                            '<option value="">Seleccione una acción</option>'
+                        );
+                    data.acciones.forEach(function(a){
+                        $("#accion").append(
+                            '<option value="' + a.idaccion + '">' + a.nombre + '</option>'
+                        );
+                    });
+                    $("#boxAcciones").fadeIn();
+                }
+            },
+
+            error: function () {
+                $("#ajaxError").text("Error al obtener datos de la ruta.").show();
+            }
+        });
+    });
+    $("#btnListaReportes").on("click", function () {
+          var idruta = $("#ruta").val();
+    if (idruta) {
+        window.location = 'lista_reportes.php' ;
+    }
+    });
+
+    var preselected = <?= json_encode($selectedRuta) ?>;
+    if (preselected > 0) {
+        $("#ruta").val(preselected).trigger('change');
+    }
+});
+/*
+document.addEventListener('DOMContentLoaded', function () {
+  const btn = document.getElementById("btnUbicacion");
+  if (!btn) return;
+   var idruta = $("#ruta").val();
+    if (!idruta) {
+      alert("No se ha seleccionado ninguna ruta.");
+      return;
+    }
+
+  btn.addEventListener("click", () => {
+    if (!navigator.geolocation) {
+      alert("La geolocalización no es soportada por este navegador.");
+      return;
+    } */
+
+   /*  navigator.geolocation.getCurrentPosition(
+       successCallback,
+  errorCallback,
+  {
+    enableHighAccuracy: true,   // 🔥 Fuerza a usar GPS real
+    timeout: 10000,            // Máx. 10 seg esperando señal GPS
+    maximumAge: 0              // No uses coordenadas en caché
+  }
+      
+        (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+       const idruta = ;
+
+        fetch("guardar_ubicacion.php", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: `lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}&idruta=${encodeURIComponent(idruta)}`
+        })
+        .then(r => r.json())
+        .then(res => {
+          if (res.success) {
+            alert("Ubicación guardada correctamente.");
+          } else {
+            alert("Error al guardar ubicación: " + (res.msg || ''));
+          }
+        })
+        .catch(() => alert("Error de comunicación con el servidor."));
+      },
+      (error) => {
+        alert("No se pudo obtener la ubicación: " + error.message);
+      }
+    ); */
+/*     const watchID = navigator.geolocation.watchPosition(
+  (pos) => {
+    const lat = pos.coords.latitude;
+    const lng = pos.coords.longitude;
+    const accuracy = pos.coords.accuracy; // en metros
+
+    console.log("Lat:", lat, "Lng:", lng, "Precisión:", accuracy);
+
+    const idruta = ;
+
+    fetch("guardar_ubicacion.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `lat=${lat}&lng=${lng}&idruta=${idruta}`
+    });
+  },
+
+  (error) => {
+    console.log("Error GPS:", error);
+  },
+
+  {
+    enableHighAccuracy: true,   // 🔥 OBLIGA GPS real
+    timeout: 15000,             // Tiempo suficiente para conectar satélites
+    maximumAge: 0               // Siempre nueva lectura
+  }
+); 
+
+  });
+
+
+});*/
+// 10 minutos en milisegundos
+//const INTERVALO_REPORTE = 10 * 60 * 1000;
+const INTERVALO_REPORTE = 1 * 60 * 1000;
+
+let ultimaUbicacion = null;
+
+// 1️⃣ Seguimiento continuo (mejor precisión)
+navigator.geolocation.watchPosition(
+  (pos) => {
+    ultimaUbicacion = {
+      lat: pos.coords.latitude,
+      lng: pos.coords.longitude,
+      accuracy: pos.coords.accuracy
+    };
+
+    console.log("GPS:", ultimaUbicacion);
+  },
+
+  (err) => console.log("Error GPS:", err),
+
+  {
+    enableHighAccuracy: true,
+    timeout: 15000,
+    maximumAge: 0
+  }
+);
+
+// 2️⃣ Envío al servidor cada 10 minutos
+setInterval(() => {
+  if (!ultimaUbicacion) return;  // Aún no tenemos coordenadas
+
+  const { lat, lng, accuracy } = ultimaUbicacion;
+  const idruta = <?= json_encode($selectedRuta) ?>;
+
+  console.log("📡 Enviando reporte…", lat, lng, accuracy);
+
+  fetch("guardar_ubicacion.php", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: `lat=${lat}&lng=${lng}&idruta=${idruta}`
+  })
+  .then(r => r.json())
+  .then(res => console.log("Servidor:", res))
+  .catch(err => console.error("Error enviando:", err));
+
+}, INTERVALO_REPORTE);
+
+</script>
+
+<?php
+// Footer global del sistema (JS de AdminLTE, etc.)
+require "../templates/footer.php";
+?>
+>>>>>>> Stashed changes
 
 </body>
 </html>
