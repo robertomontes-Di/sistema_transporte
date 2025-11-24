@@ -85,7 +85,21 @@ $stmtPar->execute([':idruta' => $idruta]);
 $paradas = $stmtPar->fetchAll(PDO::FETCH_ASSOC);
 
 // ==========================
-// 3. Reportes
+// 3. Última ubicación del bus
+// ==========================
+$sql = "
+        SELECT lat, lng, fecha_registro
+        FROM ubicaciones
+        WHERE idruta = :idruta
+        ORDER BY fecha_registro DESC
+        LIMIT 1
+    ";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([':idruta' => $idruta]);
+
+    $ubicacion_bus = $stmt->fetch(PDO::FETCH_ASSOC);
+// ==========================
+// 4. Reportes
 // ==========================
 $sqlRep = "
     SELECT 
@@ -107,7 +121,7 @@ $stmtRep->execute([':idruta' => $idruta]);
 $reportes = $stmtRep->fetchAll(PDO::FETCH_ASSOC);
 
 // ==========================
-// 4. Métricas
+// 5. Métricas
 // ==========================
 $totalEstimado   = array_sum(array_column($paradas, 'estimado_personas'));
 $totalReportado  = array_sum(array_column($reportes, 'total_personas'));
@@ -122,7 +136,7 @@ $pctUsoBus    = ($capacidadBus > 0)
     : null;
 
 // ==========================
-// 5. Datos para ECharts
+// 6. Datos para ECharts
 // ==========================
 
 // Timeline por evento
@@ -325,6 +339,7 @@ require __DIR__ . '/../templates/header.php';
 const timelineData     = <?= json_encode($timelineData) ?>;
 const paradasChartData = <?= json_encode(array_values($personasPorParada)) ?>;
 const paradasMapa      = <?= json_encode($paradasMapa) ?>;
+const ubicacionBus    = <?= json_encode($ubicacion_bus) ?>;
 
 // -----------------------------
 // ECharts: Timeline de reportes
@@ -466,6 +481,28 @@ function initMap() {
       title: p.punto_abordaje || 'Parada'
     });
   });
+  // Marcador última ubicación del bus
+  // Marcador del BUS (ubicación actual)
+if (ubicacionBus && ubicacionBus.lat && ubicacionBus.lng) {
+  const busPos = {
+    lat: parseFloat(ubicacionBus.lat),
+    lng: parseFloat(ubicacionBus.lng)
+  };
+
+  new google.maps.Marker({
+    position: busPos,
+    map,
+    title: "Ubicación actual del bus",
+    icon: {
+      url:  "https://maps.gstatic.com/mapfiles/ms2/micons/bus.png",
+      scaledSize: new google.maps.Size(40, 40)
+    }
+  });
+
+  // Opcional: centrar el mapa en la ubicación del bus
+  map.setCenter(busPos);
+}
+
 }
 
 // ----------------------
