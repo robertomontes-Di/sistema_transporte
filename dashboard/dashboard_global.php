@@ -551,49 +551,62 @@ async function renderRecentReports(){
 
 let mapInstance = null;
 let markers = [];
+
 function colorForStatus(status){
-  // Colores unificados (sin conflictos de merge)
-  if(status === 'sin_problema')  return '#046205'; // verde oscuro
-  if(status === 'inconveniente') return '#ffa500'; // naranja
-  if(status === 'critico')       return '#ff004c'; // rojo
-  return '#6c757d';
+  if (status === 'sin_problema')  return '#046205'; // verde oscuro
+  if (status === 'inconveniente') return '#ffa500'; // naranja
+  if (status === 'critico')       return '#ff004c'; // rojo fuerte
+  return '#6c757d'; // gris por defecto
 }
 
 async function renderMap(){
   try {
     const pts = await fetchMapData();
+    const mapEl = document.getElementById('map');
+
     if (!pts || pts.length === 0) {
-      mapInstance = new google.maps.Map(document.getElementById('map'), {
+      mapInstance = new google.maps.Map(mapEl, {
         center: { lat: 13.6929, lng: -89.2182 },
         zoom: 8
       });
       return;
     }
+
     const first = pts[0];
-    mapInstance = new google.maps.Map(document.getElementById('map'), {
+    mapInstance = new google.maps.Map(mapEl, {
       center: { lat: parseFloat(first.lat), lng: parseFloat(first.lng) },
       zoom: 8
     });
 
+    // Limpiar marcadores anteriores
     markers.forEach(m => m.setMap(null));
     markers = [];
 
     pts.forEach(pt => {
       const color = colorForStatus(pt.status);
-      const circle = {
-        path: google.maps.SymbolPath.CIRCLE,
-        scale: Math.max(8, Math.min(30, (pt.total_personas || 1) / 3)),
+
+      // ---------- PIN SVG PERSONALIZADO ----------
+      const pinSvg = {
+        path: "M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z",
         fillColor: color,
-        fillOpacity: 0.75,
-        strokeColor: '#fff',
-        strokeWeight: 1
+        fillOpacity: 1,
+        strokeColor: "#ffffff",
+        strokeWeight: 2,
+        // tamaño base del pin
+        scale: 1.2,
+        anchor: new google.maps.Point(12, 22) // punta del pin
       };
+
       const marker = new google.maps.Marker({
-        position: { lat: parseFloat(pt.lat), lng: parseFloat(pt.lng) },
+        position: {
+          lat: parseFloat(pt.lat),
+          lng: parseFloat(pt.lng)
+        },
         map: mapInstance,
-        icon: circle,
-        title: `Ruta ${pt.ruta_nombre} - ${pt.total_personas || 0}`
+        icon: pinSvg,
+        title: `Ruta ${pt.ruta_nombre} - ${pt.total_personas || 0} personas`
       });
+
       const info = `
         <div>
           <strong>Ruta:</strong> ${pt.ruta_nombre}<br/>
@@ -604,12 +617,20 @@ async function renderMap(){
         </div>
       `;
       const infow = new google.maps.InfoWindow({ content: info });
-      marker.addListener('click', () => infow.open({ anchor: marker, map: mapInstance }));
+
+      marker.addListener('click', () => {
+        infow.open({
+          anchor: marker,
+          map: mapInstance
+        });
+      });
+
       markers.push(marker);
     });
 
+    // Ajustar el zoom para que se vean todos los pines
     const bounds = new google.maps.LatLngBounds();
-    markers.forEach(m => bounds.extend(m.position));
+    markers.forEach(m => bounds.extend(m.getPosition()));
     mapInstance.fitBounds(bounds);
 
   } catch (err) {
