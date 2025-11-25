@@ -165,7 +165,9 @@ function etiquetaTipoAccion(string $tipo): string {
 $accionesRequierenPersonas = [
     'salida hacia el estadio',
     'salida de parada',
+    'salida hacia el mágico gonzález',   // 👈 nueva
 ];
+
 
 function accionRequierePersonas(?string $nombreAccion, array $lista): bool {
     if (!$nombreAccion) return false;
