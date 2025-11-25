@@ -234,7 +234,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'placa'              => $placa,
                 ];
             } catch (Throwable $e) {
-                $errors[] = 'Error al guardar la información del autobús.';
+                $errors[] = 'Error al guardar el reporte: ' . $e->getMessage();
             }
         }
     }
@@ -255,19 +255,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if (!$errors) {
             try {
+                // Usaremos idparada = 0 para los reportes del líder de ruta
+                $idparada = 0;
+
                 $stmt = $pdo->prepare("
                     INSERT INTO reporte
                         (idruta, idagente, idparada, idaccion,
-                         total_personas, total_becarios, total_menores12,
-                         comentario, fecha_reporte)
+                        total_personas, total_becarios, total_menores12,
+                        comentario, fecha_reporte)
                     VALUES
                         (:idruta, NULL, :idparada, :idaccion,
-                         :total, 0, 0,
-                         :comentario, NOW())
+                        :total, 0, 0,
+                        :comentario, NOW())
                 ");
                 $stmt->execute([
                     ':idruta'     => $idruta,
-                    ':idparada'   => $idParadaDefault, // ← FIX: nunca NULL
+                    ':idparada'   => $idparada,
                     ':idaccion'   => $idAccionSalida,
                     ':total'      => $totalPersonas,
                     ':comentario' => $comentario
@@ -276,7 +279,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $success            = 'Primer reporte registrado correctamente (Salida hacia el estadio).';
                 $tienePrimerReporte = true;
             } catch (Throwable $e) {
-                $errors[] = 'Error al guardar el primer reporte.';
+                $errors[] = 'Error al guardar el reporte: ' . $e->getMessage();
             }
         }
     }
@@ -310,28 +313,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if (!$errors) {
             try {
+                // Para este flujo también usamos idparada = 0 por ahora
+                $idparada = 0;
+
                 $stmt = $pdo->prepare("
                     INSERT INTO reporte
                         (idruta, idagente, idparada, idaccion,
-                         total_personas, total_becarios, total_menores12,
-                         comentario, fecha_reporte)
+                        total_personas, total_becarios, total_menores12,
+                        comentario, fecha_reporte)
                     VALUES
                         (:idruta, NULL, :idparada, :idaccion,
-                         :total, 0, 0,
-                         :comentario, NOW())
+                        :total, 0, 0,
+                        :comentario, NOW())
                 ");
                 $stmt->execute([
                     ':idruta'     => $idruta,
-                    ':idparada'   => $idParadaDefault, // ← FIX: nunca NULL
+                    ':idparada'   => $idparada,
                     ':idaccion'   => $idaccion,
                     ':total'      => $totalPersonas,
                     ':comentario' => $comentario
                 ]);
 
                 $success = 'Reporte registrado correctamente.';
-            } catch (Throwable $e) {
-                $errors[] = 'Error al guardar el reporte.';
-            }
+        } catch (Throwable $e) {
+            $errors[] = 'Error al guardar el reporte: ' . $e->getMessage();
+        }
         }
     }
 }
@@ -350,3 +356,341 @@ if (!$configBus) {
 $accionesRequierenPersonasJs = json_encode($accionesRequierenPersonas);
 ?>
 <!-- A partir de aquí deja igual tu HTML y JS del formulario -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <title>Reporte de Ruta</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <!-- Bootstrap 4 simple (sin integrity para evitar bloqueos) -->
+    <link rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
+
+    <style>
+        body {
+            background: #f4f6f9;
+        }
+        .reporte-container {
+            min-height: 100vh;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            padding-top: 30px;
+            padding-bottom: 30px;
+        }
+        .reporte-card {
+            width: 100%;
+            max-width: 650px;
+            box-shadow: 0 0 12px rgba(0,0,0,0.08);
+            border-radius: 8px;
+            background: #fff;
+        }
+        .reporte-card .card-header {
+            background: #0b7cc2;
+            color: #fff;
+            border-radius: 8px 8px 0 0;
+        }
+        .btn-ubicacion {
+            background-color: #28a745;
+            border-color: #28a745;
+        }
+    </style>
+</head>
+<body>
+
+<div class="reporte-container">
+  <div class="card reporte-card">
+    <div class="card-header">
+      <div class="d-flex justify-content-between align-items-center">
+        <div>
+          <h5 class="mb-0">Ruta: <?= htmlspecialchars($rutaNombre ?: ($rutaInfo['nombre'] ?? '')) ?></h5>
+          <?php if ($rutaInfo): ?>
+            <small>
+              Destino: <?= htmlspecialchars($rutaInfo['destino'] ?? '-') ?>
+              <?php if (!empty($rutaInfo['encargado'])): ?>
+                <br>Líder: <?= htmlspecialchars($rutaInfo['encargado']) ?>
+              <?php endif; ?>
+            </small>
+          <?php endif; ?>
+        </div>
+        <div>
+          <a href="logout.php" class="btn btn-sm btn-outline-light">Salir</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="card-body">
+
+      <?php if ($errors): ?>
+        <div class="alert alert-danger">
+          <?php foreach ($errors as $e): ?>
+            <div><?= htmlspecialchars($e) ?></div>
+          <?php endforeach; ?>
+        </div>
+      <?php endif; ?>
+
+      <?php if ($success): ?>
+        <div class="alert alert-success">
+          <?= htmlspecialchars($success) ?>
+        </div>
+      <?php endif; ?>
+
+      <!-- Paso 1: Configuración del autobús -->
+      <?php if ($step === 'config_bus'): ?>
+        <h6 class="mb-3">Validar datos del autobús</h6>
+        <p class="text-muted">
+          Completa esta información una sola vez antes de enviar reportes.
+        </p>
+
+        <form method="post" autocomplete="off">
+          <input type="hidden" name="form_step" value="config_bus">
+
+          <div class="form-group">
+            <label for="nombre_motorista">Nombre del motorista</label>
+            <input type="text"
+                   name="nombre_motorista"
+                   id="nombre_motorista"
+                   class="form-control"
+                   required>
+          </div>
+
+          <div class="form-group">
+            <label for="telefono_motorista">Teléfono del conductor</label>
+            <input type="number"
+                   name="telefono_motorista"
+                   id="telefono_motorista"
+                   class="form-control"
+                   min="50000000"
+                   max="89999999"
+                   required>
+          </div>
+
+          <div class="form-group">
+            <label for="capacidad_aprox">Capacidad aproximada del autobús</label>
+            <input type="number"
+                   name="capacidad_aprox"
+                   id="capacidad_aprox"
+                   class="form-control"
+                   min="0"
+                   max="100"
+                   placeholder="Ejemplo. 100">
+          </div>
+
+          <div class="form-group">
+            <label for="placa">Placa</label>
+            <input type="text"
+                   name="placa"
+                   id="placa"
+                   class="form-control">
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-block">
+            Guardar datos del autobús
+          </button>
+        </form>
+
+      <!-- Paso 2: Primer reporte (Salida hacia el estadio) -->
+      <?php elseif ($step === 'primer_reporte'): ?>
+        <h6 class="mb-3">Primer reporte: Salida hacia el estadio</h6>
+        <p class="text-muted">
+          Registra la cantidad total de personas a bordo al momento de salir hacia el estadio.
+        </p>
+
+        <form method="post" autocomplete="off">
+          <input type="hidden" name="form_step" value="primer_reporte">
+
+          <div class="form-group">
+            <label for="total_personas">Cantidad de personas a bordo</label>
+            <input type="number"
+                   name="total_personas"
+                   id="total_personas"
+                   class="form-control"
+                   required
+                   min="1">
+          </div>
+
+          <div class="form-group">
+            <label for="comentario">Comentario (opcional)</label>
+            <input type="text"
+                   name="comentario"
+                   id="comentario"
+                   class="form-control">
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-block">
+            Guardar primer reporte
+          </button>
+        </form>
+
+      <!-- Paso 3: Nuevo reporte + botón Enviar ubicación -->
+      <?php else: ?>
+        <h6 class="mb-3">Nuevo reporte</h6>
+        <p class="text-muted">
+          Envíe reportes de ruta, incidencias o emergencias.  
+          Use el botón verde para mandar solo la ubicación del bus.
+        </p>
+
+        <form method="post" autocomplete="off" id="formNuevoReporte">
+          <input type="hidden" name="form_step" value="nuevo_reporte">
+
+          <div class="form-group">
+            <label for="idaccion">Tipo de reporte</label>
+            <select name="idaccion" id="idaccion" class="form-control" required>
+              <option value="">Seleccione…</option>
+
+              <?php foreach ($accionesPorTipo as $tipo => $lista): ?>
+                <optgroup label="<?= htmlspecialchars(etiquetaTipoAccion($tipo)) ?>">
+                  <?php foreach ($lista as $a): ?>
+                    <option value="<?= (int)$a['idaccion'] ?>"
+                            data-nombre="<?= htmlspecialchars($a['nombre']) ?>"
+                            data-tipo="<?= htmlspecialchars($a['tipo_accion'] ?? 'otro') ?>">
+                      <?= htmlspecialchars($a['nombre']) ?>
+                    </option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endforeach; ?>
+
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="total_personas_main">Cantidad de personas (si aplica)</label>
+            <input type="number"
+                   name="total_personas"
+                   id="total_personas_main"
+                   class="form-control"
+                   min="0"
+                   disabled>
+            <small class="form-text text-muted">
+              Solo se habilita para eventos que requieren actualizar personas a bordo.
+            </small>
+          </div>
+
+          <div class="form-group">
+            <label for="comentario_main">Comentario (opcional)</label>
+            <input type="text"
+                   name="comentario"
+                   id="comentario_main"
+                   class="form-control">
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-block mb-2">
+            Enviar reporte
+          </button>
+        </form>
+
+        <hr>
+
+        <!-- Botón de ubicación SOLO disponible cuando ya hay primer reporte -->
+        <button type="button"
+                class="btn btn-ubicacion btn-block"
+                id="btnUbicacion">
+          Enviar ubicación
+        </button>
+
+        <small class="text-muted d-block mt-2">
+          Este botón solo envía la posición GPS de la unidad
+          (sin crear un nuevo evento de reporte).
+        </small>
+
+      <?php endif; ?>
+
+    </div>
+  </div>
+</div>
+
+<script>
+// Reglas compartidas: nombres de acciones que requieren personas (desde PHP)
+const ACCIONES_REQUIEREN_PERSONAS = <?= $accionesRequierenPersonasJs ?> || [];
+
+// Normalizar cadenas a minúsculas
+function normalize(str) {
+  return (str || '').toString().trim().toLowerCase();
+}
+
+// Habilitar / deshabilitar campo de personas según la acción elegida
+(function() {
+  const selectAccion   = document.getElementById('idaccion');
+  const inputPersonas  = document.getElementById('total_personas_main');
+
+  if (selectAccion && inputPersonas) {
+    selectAccion.addEventListener('change', function() {
+      const opt    = selectAccion.options[selectAccion.selectedIndex];
+      const nombre = normalize(opt.getAttribute('data-nombre') || '');
+
+      let requiere = false;
+      ACCIONES_REQUIEREN_PERSONAS.forEach(txt => {
+        if (nombre.includes(normalize(txt))) {
+          requiere = true;
+        }
+      });
+
+      if (requiere) {
+        inputPersonas.disabled = false;
+        inputPersonas.required = true;
+      } else {
+        inputPersonas.value    = '';
+        inputPersonas.disabled = true;
+        inputPersonas.required = false;
+      }
+    });
+  }
+
+  // Botón "Enviar ubicación"
+  const btnUbicacion = document.getElementById('btnUbicacion');
+  if (btnUbicacion) {
+    btnUbicacion.addEventListener('click', function() {
+      if (!navigator.geolocation) {
+        alert('La geolocalización no es soportada en este dispositivo.');
+        return;
+      }
+
+      btnUbicacion.disabled   = true;
+      btnUbicacion.textContent = 'Enviando ubicación...';
+
+      navigator.geolocation.getCurrentPosition(
+        function(pos) {
+          const lat    = pos.coords.latitude;
+          const lng    = pos.coords.longitude;
+          const idruta = <?= (int)$idruta ?>;
+
+          fetch('guardar_ubicacion.php', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body:
+              'lat='   + encodeURIComponent(lat)   +
+              '&lng='  + encodeURIComponent(lng)   +
+              '&idruta=' + encodeURIComponent(idruta)
+          })
+          .then(r => r.json())
+          .then(data => {
+            if (data && data.success) {
+              alert('Ubicación enviada correctamente.');
+            } else {
+              alert('Error al guardar la ubicación.');
+            }
+          })
+          .catch(() => {
+            alert('Error al enviar la ubicación.');
+          })
+          .finally(() => {
+            btnUbicacion.disabled    = false;
+            btnUbicacion.textContent = 'Enviar ubicación';
+          });
+        },
+        function(err) {
+          alert('No se pudo obtener la ubicación: ' + err.message);
+          btnUbicacion.disabled    = false;
+          btnUbicacion.textContent = 'Enviar ubicación';
+        }
+      );
+    });
+  }
+})();
+</script>
+
+</body>
+</html>
