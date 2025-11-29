@@ -75,6 +75,7 @@ if (!$ruta) {
     die('Ruta no encontrada');
 }
 
+
 /* -------------------------------------------------------
    3. Paradas de la ruta
 --------------------------------------------------------*/
@@ -115,11 +116,6 @@ $sqlRep = "
 $stmtRep = $pdo->prepare($sqlRep);
 $stmtRep->execute([':idruta' => $idruta]);
 $reportes = $stmtRep->fetchAll(PDO::FETCH_ASSOC);
-// 4. Cálculos
-$totalEstimado = array_sum(array_column($paradas, 'estimado_personas'));
-// $totalReportado ya viene calculado en el bloque anterior
-$avance = ($totalEstimado > 0) ? round(($totalReportado / $totalEstimado) * 100) : 0;
-
 
 /* -------------------------------------------------------
    5. Métricas globales
@@ -151,60 +147,25 @@ foreach ($reportes as $r) {
     ];
 }
 
-// Personas por parada (incluyendo abordajes sin parada explícita)
+// Personas por parada
 $personasPorParada = [];
-
-// Cargar paradas conocidas
 foreach ($paradas as $p) {
-    $personasPorParada[(int)$p['idparada']] = [
+    $personasPorParada[$p['idparada']] = [
         'nombre'   => $p['punto_abordaje'],
         'orden'    => (int)$p['orden'],
         'total'    => 0,
         'estimado' => (int)($p['estimado_personas'] ?? 0),
     ];
 }
-
-// Bucket para reportes sin parada (idparada 0 / null)
-$bucketSinParada = [
-    'nombre'   => 'Abordaje inicial / sin parada',
-    'orden'    => -1,   // aparece al inicio
-    'total'    => 0,
-    'estimado' => 0,
-];
-
-$totalReportado = 0; // total global de personas reportadas en la ruta
-
 foreach ($reportes as $r) {
-    $personas = (int)$r['total_personas'];
-
-    // ignorar incidentes o registros sin personas
-    if ($personas <= 0 || (int)($r['critico'] ?? 0) === 1) {
+    if (!isset($personasPorParada[$r['idparada']])) {
         continue;
     }
-
-    $idp = (int)($r['idparada'] ?? 0);
-
-    // sumar al total global
-    $totalReportado += $personas;
-
-    if (isset($personasPorParada[$idp])) {
-        // reporte asociado a una parada conocida
-        $personasPorParada[$idp]['total'] += $personas;
-    } else {
-        // reporte sin parada conocida (ej. salida hacia estadio)
-        $bucketSinParada['total'] += $personas;
-    }
+    $personasPorParada[$r['idparada']]['total'] += (int)$r['total_personas'];
 }
-
-// si hubo personas sin parada, agregamos ese bucket a la lista
-if ($bucketSinParada['total'] > 0) {
-    $personasPorParada[0] = $bucketSinParada;
-}
-
-// ordenar por orden de parada (el “sin parada” queda primero si orden=-1)
 usort($personasPorParada, fn($a, $b) => $a['orden'] <=> $b['orden']);
 
-// Paradas con coordenadas para el mapa (esto lo dejas igual)
+// Paradas con coordenadas para el mapa
 $paradasMapa = array_values(array_filter($paradas, fn($p) =>
     !empty($p['latitud']) && !empty($p['longitud'])
 ));
@@ -386,7 +347,7 @@ require __DIR__ . '/../templates/header.php';
 </section>
 
 <!-- Google Maps API -->
-<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyC2Zm7v7BAdKaA-KAvna0q4y0lQgwvE1V4"></script>
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyC2Zm7v7BAdKaA-KAvna0q4y0lQgwvE1V4&libraries=geometry"></script>
 
 <script>
 // Datos desde PHP
@@ -502,7 +463,7 @@ function fetchUltimaUbicacion() {
 /* ------------------------------------------------------
    5) Google Maps: ruta planificada + recorrido real
 -------------------------------------------------------*/
-function initMap() {
+/*function initMap() {
   const mapEl = document.getElementById('map');
   if (!mapEl) return;
 
@@ -528,8 +489,58 @@ function initMap() {
 
   const bounds = new google.maps.LatLngBounds();
 
+  const directionsService  = new google.maps.DirectionsService();
+  const directionsRenderer = new google.maps.DirectionsRenderer({
+    map: map,
+    suppressMarkers: true
+  });
+
+  // Origen, destino y waypoints
+  const origen = {
+    lat: parseFloat(paradasMapa[0].latitud),
+    lng: parseFloat(paradasMapa[0].longitud)
+  };
+
+
+
+
   // 5.1 Ruta planificada (paradas → polilínea azul)
   const pathRuta = [];
+
+  const destino = {
+    lat: parseFloat(paradasMapa[paradasMapa.length - 1].latitud),
+    lng: parseFloat(paradasMapa[paradasMapa.length - 1].longitud)
+  };
+
+    let waypoints = [];
+  for (let i = 1; i < paradasMapa.length - 1; i++) {
+    waypoints.push({
+      location: {
+        lat: parseFloat(paradasMapa[i].latitud),
+        lng: parseFloat(paradasMapa[i].longitud)
+      },
+      stopover: true
+    });
+  }
+
+  directionsService.route(
+    {
+      origin: origen,
+      destination: destino,
+      waypoints: waypoints,
+      travelMode: google.maps.TravelMode.DRIVING
+    },
+    function (result, status) {
+      if (status === google.maps.DirectionsStatus.OK) {
+        directionsRenderer.setDirections(result);
+      } else {
+        console.error("Error Directions:", status);
+      }
+    }
+  );
+
+
+
 
   paradasMapa.forEach(p => {
     const pos = {
@@ -540,11 +551,15 @@ function initMap() {
     bounds.extend(pos);
 
     new google.maps.Marker({
-      position: pos,
+      position: {
+        lat: parseFloat(p.latitud),
+        lng: parseFloat(p.longitud)
+      },
       map,
       label: p.orden ? String(p.orden) : undefined,
       title: p.punto_abordaje || 'Parada'
     });
+
   });
 
   if (pathRuta.length > 1) {
@@ -596,7 +611,101 @@ function initMap() {
   // Primer fetch de ubicación del bus y luego cada 60 s
   fetchUltimaUbicacion();
   setInterval(fetchUltimaUbicacion, 60000);
+}*/
+function initMap() {
+  const mapEl = document.getElementById('map');
+  if (!mapEl) return;
+
+  let center = { lat: 13.6929, lng: -89.2182 };
+
+  if (paradasMapa.length > 0) {
+    center = {
+      lat: parseFloat(paradasMapa[0].latitud),
+      lng: parseFloat(paradasMapa[0].longitud)
+    };
+  }
+
+  map = new google.maps.Map(mapEl, {
+    center,
+    zoom: 11
+  });
+
+  // SOLO PARA AJUSTAR LA VISTA
+  const bounds = new google.maps.LatLngBounds();
+
+  // 1️⃣ MARCAR LAS PARADAS
+  const waypoints = [];
+
+  paradasMapa.forEach(p => {
+    const pos = {
+      lat: parseFloat(p.latitud),
+      lng: parseFloat(p.longitud)
+    };
+
+    // agregar pin
+    new google.maps.Marker({
+      position: pos,
+      map,
+      label: p.orden ? String(p.orden) : undefined,
+      title: p.punto_abordaje || 'Parada'
+    });
+
+    // agregar waypoint para directions
+    waypoints.push({
+      location: pos,
+      stopover: true
+    });
+
+    bounds.extend(pos);
+  });
+
+  // 2️⃣ DIBUJAR LA RUTA REAL (GOOGLE DIRECTIONS)
+  if (waypoints.length >= 2) {
+    const directionsService = new google.maps.DirectionsService();
+    const directionsRenderer = new google.maps.DirectionsRenderer({
+      map: map,
+      suppressMarkers: true // no duplicar marcadores
+    });
+
+    directionsService.route(
+      {
+        origin: waypoints[0].location,
+        destination: waypoints[waypoints.length - 1].location,
+        waypoints: waypoints.slice(1, -1),
+        travelMode: google.maps.TravelMode.DRIVING
+      },
+      (response, status) => {
+        if (status === google.maps.DirectionsStatus.OK) {
+          directionsRenderer.setDirections(response);
+        } else {
+          console.error('Error en Directions:', status);
+        }
+      }
+    );
+  }
+
+  // 3️⃣ DIBUJAR LA UBICACIÓN DEL BUS SI EXISTE
+  if (ubicacionesRuta.length > 0) {
+    const ultimaPos = ubicacionesRuta[ubicacionesRuta.length - 1];
+
+    const posBus = {
+      lat: parseFloat(ultimaPos.lat),
+      lng: parseFloat(ultimaPos.lng)
+    };
+
+    new google.maps.Marker({
+      position: posBus,
+      map,
+      icon: "https://maps.google.com/mapfiles/ms/icons/bus.png",
+      title: "Ubicación actual del bus"
+    });
+
+    bounds.extend(posBus);
+  }
+
+  map.fitBounds(bounds);
 }
+
 
 /* ------------------------------------------------------
    6) Inicialización
