@@ -6,12 +6,9 @@ require_once __DIR__ . '/../includes/db.php';
 // Detectar si es llamada API (JSON) o carga normal HTML
 $action = $_GET['action'] ?? null;
 
-if ($action) {
-    header('Content-Type: application/json; charset=utf-8');
-
     if ($action === 'routes') {
         try {
-            // Filtros opcionales (por ahora sencillos)
+            // Filtros opcionales
             $params = [];
             $where  = [];
 
@@ -20,36 +17,47 @@ if ($action) {
                 $params[':idruta'] = (int)$_GET['idruta'];
             }
 
+            // estado: sin_problema, inconveniente, critico
             if (!empty($_GET['estado'])) {
-                // estado: sin_problema, inconveniente, critico
-                // Lo filtramos luego en PHP sobre el array ya clasificado
                 $estadoFilter = $_GET['estado'];
             } else {
                 $estadoFilter = null;
             }
 
-            // Subconsulta: último reporte por ruta
-            // y subconsulta: estimado total por ruta (suma de paradas)
+            // Consulta rutas con:
+            // - info de ruta/bus/encargado
+            // - último reporte (para estado e info)
+            // - suma acumulada de personas (solo reportes no críticos)
+            // - estimado total de personas (suma de paradas)
             $sql = "
-                SELECT 
+                SELECT
                     r.idruta,
-                    r.nombre AS ruta_nombre,
+                    r.nombre        AS ruta_nombre,
                     r.destino,
                     r.flag_arrival,
                     b.placa,
                     b.capacidad_asientos AS bus_capacidad,
-                    er.nombre AS encargado_nombre,
-                    lr.total_personas,
+                    er.nombre       AS encargado_nombre,
+
+                    -- Último reporte por ruta
+                    lr.total_personas    AS total_personas_ultimo,
+                    lr.total_becarios,
+                    lr.total_menores12,
                     lr.fecha_reporte,
                     lr.idaccion,
-                    a.nombre AS accion_nombre,
+                    a.nombre        AS accion_nombre,
                     a.tipo_accion,
-                    est.estimado_total
+
+                    -- Estimado total de personas
+                    est.estimado_total,
+
+                    -- Personas acumuladas (solo reportes no críticos)
+                    stats.total_personas_acum
                 FROM ruta r
-                LEFT JOIN bus b 
-                    ON r.idbus = b.idbus
-                LEFT JOIN encargado_ruta er
-                    ON r.idencargado_ruta = er.idencargado_ruta
+                LEFT JOIN bus b ON b.idbus = r.idbus
+                LEFT JOIN encargado_ruta er ON er.idencargado_ruta = r.idencargado_ruta
+
+                -- Último registro de reporte por ruta
                 LEFT JOIN (
                     SELECT rp1.*
                     FROM reporte rp1
@@ -59,18 +67,33 @@ if ($action) {
                         GROUP BY idruta
                     ) x ON rp1.idruta = x.idruta AND rp1.fecha_reporte = x.mx
                 ) lr ON lr.idruta = r.idruta
-                LEFT JOIN acciones a 
-                    ON lr.idaccion = a.idaccion
+
+                LEFT JOIN acciones a ON a.idaccion = lr.idaccion
+
+                -- Estimado de personas por ruta (suma de paradas)
                 LEFT JOIN (
                     SELECT idruta, SUM(estimado_personas) AS estimado_total
                     FROM paradas
                     GROUP BY idruta
                 ) est ON est.idruta = r.idruta
+
+                -- Métricas acumuladas de personas (ignorando críticos)
+                LEFT JOIN (
+                    SELECT
+                        idruta,
+                        SUM(CASE WHEN critico = 0 THEN total_personas ELSE 0 END) AS total_personas_acum
+                    FROM reporte
+                    GROUP BY idruta
+                ) stats ON stats.idruta = r.idruta
             ";
 
+            // Aplica filtros dinámicos ANTES del ORDER BY
             if (!empty($where)) {
                 $sql .= ' WHERE ' . implode(' AND ', $where);
             }
+
+            // Orden final
+            $sql .= ' ORDER BY r.idruta DESC';
 
             $stmt = $pdo->prepare($sql);
             foreach ($params as $k => $v) {
@@ -81,35 +104,42 @@ if ($action) {
 
             $out = [];
             foreach ($rows as $r) {
-                // Clasificar estado de la ruta según el último reporte
-                $status = '';       
-             
-
+                // Clasificar estado según el último reporte
+                $status = 'sin_problema';
                 if (!empty($r['idaccion'])) {
-                    $tipo = strtolower($r['tipo_accion']);
+                    $tipo = strtolower($r['tipo_accion'] ?? '');
                     if ($tipo === 'critico') {
                         $status = 'critico';
-                    } elseif ($tipo === 'normal') {
-                        $status = 'sin_problema';
-                    } else {
+                    } elseif ($tipo === 'inconveniente') {
                         $status = 'inconveniente';
+                    } else {
+                        $status = 'sin_problema';
                     }
                 }
 
-                $total_personas = isset($r['total_personas']) ? (int)$r['total_personas'] : 0;
+                // Personas del último reporte
+                $personas_ultimo = isset($r['total_personas_ultimo'])
+                    ? (int)$r['total_personas_ultimo']
+                    : 0;
+
+                // Personas acumuladas en la ruta (si no hay acumulado, usamos el último como fallback)
+                $personas_acum = isset($r['total_personas_acum'])
+                    ? (int)$r['total_personas_acum']
+                    : $personas_ultimo;
+
                 $estimado_total = isset($r['estimado_total']) ? (int)$r['estimado_total'] : 0;
                 $bus_capacidad  = isset($r['bus_capacidad']) ? (int)$r['bus_capacidad'] : 0;
 
-                // % cumplimiento sobre estimado de paradas
+                // % cumplimiento sobre estimado de paradas (usamos personas acumuladas)
                 $pct_cumpl = null;
                 if ($estimado_total > 0) {
-                    $pct_cumpl = round(($total_personas / $estimado_total) * 100, 1);
+                    $pct_cumpl = round(($personas_acum / $estimado_total) * 100, 1);
                 }
 
-                // % uso sobre capacidad del bus
+                // % uso sobre capacidad del bus (también con acumulado)
                 $pct_uso = null;
                 if ($bus_capacidad > 0) {
-                    $pct_uso = round(($total_personas / $bus_capacidad) * 100, 1);
+                    $pct_uso = round(($personas_acum / $bus_capacidad) * 100, 1);
                 }
 
                 $row = [
@@ -119,7 +149,10 @@ if ($action) {
                     'flag_arrival'    => (int)$r['flag_arrival'],
                     'placa'           => $r['placa'],
                     'encargado'       => $r['encargado_nombre'],
-                    'total_personas'  => $total_personas,
+                    // Personas del último reporte (lo que muestra la tarjeta)
+                    'total_personas'  => $personas_ultimo,
+                    // Personas acumuladas en la ruta (por si luego quieres usarlo en front)
+                    'total_personas_acumuladas' => $personas_acum,
                     'estimado_total'  => $estimado_total,
                     'bus_capacidad'   => $bus_capacidad,
                     'pct_cumpl'       => $pct_cumpl,
@@ -147,11 +180,6 @@ if ($action) {
         }
     }
 
-    // Si action no coincide
-    http_response_code(400);
-    echo json_encode(['error' => 'action inválida']);
-    exit;
-}
 
 // ---------------------------------------------------------------------
 // MODO PÁGINA HTML

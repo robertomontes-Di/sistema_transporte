@@ -286,62 +286,69 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // ---------- FORM 3: Nuevo reporte general ----------
-    if ($formStep === 'nuevo_reporte') {
-        $idaccion      = isset($_POST['idaccion']) ? (int)$_POST['idaccion'] : 0;
-        $totalPersonas = ($_POST['total_personas'] ?? '') !== ''
-                            ? (int)$_POST['total_personas'] : 0;
-        $comentario    = trim($_POST['comentario'] ?? '');
+  // ---------- FORM 3: Nuevo reporte general ----------
+  if ($formStep === 'nuevo_reporte') {
+      $idaccion   = isset($_POST['idaccion']) ? (int)$_POST['idaccion'] : 0;
+      $rawTotal   = trim($_POST['total_personas'] ?? '');
+      $totalPersonas = ($rawTotal !== '') ? max(0, (int)$rawTotal) : 0;
+      $comentario = trim($_POST['comentario'] ?? '');
 
-        if ($idaccion <= 0) {
-            $errors[] = 'Debe seleccionar el tipo de reporte.';
-        }
+      if ($idaccion <= 0) {
+          $errors[] = 'Debe seleccionar el tipo de reporte.';
+      }
 
-        $nombreAccion = null;
-        if ($idaccion > 0) {
-            foreach ($acciones as $a) {
-                if ((int)$a['idaccion'] === $idaccion) {
-                    $nombreAccion = $a['nombre'];
-                    break;
-                }
-            }
-        }
+      $nombreAccion = null;
+      if ($idaccion > 0) {
+          foreach ($acciones as $a) {
+              if ((int)$a['idaccion'] === $idaccion) {
+                  $nombreAccion = $a['nombre'];
+                  break;
+              }
+          }
+      }
 
-        $requierePersonas = accionRequierePersonas($nombreAccion, $accionesRequierenPersonas);
+      // ¿Esta acción suma personas?
+      $requierePersonas = accionRequierePersonas($nombreAccion, $accionesRequierenPersonas);
 
-        if ($requierePersonas && $totalPersonas <= 0) {
-            $errors[] = 'Debe indicar la cantidad de personas para esta acción.';
-        }
+      // Solo obligamos número de personas para las acciones que suman
+      if ($requierePersonas && $totalPersonas <= 0) {
+          $errors[] = 'Debe indicar la cantidad de personas para esta acción.';
+      }
 
-        if (!$errors) {
-            try {
-                // Para este flujo también usamos idparada = 0 por ahora
-                $idparada = 0;
+      // Si NO suma personas (incidentes, llegadas, etc.), forzamos a 0
+      if (!$requierePersonas) {
+          $totalPersonas = 0;
+      }
 
-                $stmt = $pdo->prepare("
-                    INSERT INTO reporte
-                        (idruta, idagente, idparada, idaccion,
-                        total_personas, total_becarios, total_menores12,
-                        comentario, fecha_reporte)
-                    VALUES
-                        (:idruta, NULL, :idparada, :idaccion,
-                        :total, 0, 0,
-                        :comentario, NOW())
-                ");
-                $stmt->execute([
-                    ':idruta'     => $idruta,
-                    ':idparada'   => $idparada,
-                    ':idaccion'   => $idaccion,
-                    ':total'      => $totalPersonas,
-                    ':comentario' => $comentario
-                ]);
+      if (!$errors) {
+          try {
+              // Para este flujo usamos idparada = 0 por ahora
+              $idparada = 0;
 
-                $success = 'Reporte registrado correctamente.';
-        } catch (Throwable $e) {
-            $errors[] = 'Error al guardar el reporte: ' . $e->getMessage();
-        }
-        }
-    }
+              $stmt = $pdo->prepare("
+                  INSERT INTO reporte
+                      (idruta, idagente, idparada, idaccion,
+                      total_personas, total_becarios, total_menores12,
+                      comentario, fecha_reporte)
+                  VALUES
+                      (:idruta, NULL, :idparada, :idaccion,
+                      :total, 0, 0,
+                      :comentario, NOW())
+              ");
+              $stmt->execute([
+                  ':idruta'     => $idruta,
+                  ':idparada'   => $idparada,
+                  ':idaccion'   => $idaccion,
+                  ':total'      => $totalPersonas, // aquí llegan solo incrementos
+                  ':comentario' => $comentario
+              ]);
+
+              $success = 'Reporte registrado correctamente.';
+          } catch (Throwable $e) {
+              $errors[] = 'Error al guardar el reporte: ' . $e->getMessage();
+          }
+      }
+  }
 }
 
 // ===============================
@@ -532,56 +539,120 @@ $accionesRequierenPersonasJs = json_encode($accionesRequierenPersonas);
           Envíe reportes de ruta, incidencias o emergencias.  
           Use el botón verde para mandar solo la ubicación del bus.
         </p>
+        <?php
+      // Clasificar acciones por tipo_accion (normal / critico / inconveniente)
+      $accionesNormal        = [];
+      $accionesCritico       = [];
+      $accionesInconveniente = [];
 
+      foreach ($acciones as $a) {
+          $tipo = strtolower($a['tipo_accion'] ?? '');
+          if ($tipo === 'normal') {
+              $accionesNormal[] = $a;
+          } elseif ($tipo === 'critico') {
+              $accionesCritico[] = $a;
+          } elseif ($tipo === 'inconveniente') {
+              $accionesInconveniente[] = $a;
+          }
+      }
+      ?>
         <form method="post" autocomplete="off" id="formNuevoReporte">
-          <input type="hidden" name="form_step" value="nuevo_reporte">
+  <input type="hidden" name="form_step" value="nuevo_reporte">
 
-          <div class="form-group">
-            <label for="idaccion">Tipo de reporte</label>
-            <select name="idaccion" id="idaccion" class="form-control" required>
-              <option value="">Seleccione…</option>
+  <!-- Campo REAL que verá el backend (idaccion numérico) -->
+  <input type="hidden" name="idaccion" id="idaccion_real" value="">
 
-              <?php foreach ($accionesPorTipo as $tipo => $lista): ?>
-                <optgroup label="<?= htmlspecialchars(etiquetaTipoAccion($tipo)) ?>">
-                  <?php foreach ($lista as $a): ?>
-                    <option value="<?= (int)$a['idaccion'] ?>"
-                            data-nombre="<?= htmlspecialchars($a['nombre']) ?>"
-                            data-tipo="<?= htmlspecialchars($a['tipo_accion'] ?? 'otro') ?>">
-                      <?= htmlspecialchars($a['nombre']) ?>
-                    </option>
-                  <?php endforeach; ?>
-                </optgroup>
-              <?php endforeach; ?>
+  <!-- 1) Tipo de reporte: Normal / Incidente -->
+  <div class="form-group">
+    <label for="tipo_reporte">Tipo de reporte</label>
+    <select name="tipo_reporte" id="tipo_reporte" class="form-control" required>
+      <option value="">Seleccione…</option>
+      <option value="normal">Normal</option>
+      <option value="incidente">Incidente</option>
+    </select>
+  </div>
 
-            </select>
-          </div>
+  <!-- 2) Detalle cuando es NORMAL -->
+  <div class="form-group" id="grupo_normal" style="display:none;">
+    <label for="idaccion_normal">Detalle del reporte (normal)</label>
+    <select id="idaccion_normal" class="form-control">
+      <option value="">Seleccione…</option>
+      <?php foreach ($accionesNormal as $a): ?>
+        <?php
+          $requiere = accionRequierePersonas($a['nombre'], $accionesRequierenPersonas) ? '1' : '0';
+        ?>
+        <option value="<?= (int)$a['idaccion'] ?>"
+                data-requiere-personas="<?= $requiere ?>">
+          <?= htmlspecialchars($a['nombre']) ?>
+        </option>
+      <?php endforeach; ?>
+    </select>
+  </div>
 
-          <div class="form-group">
-            <label for="total_personas_main">Cantidad de personas (si aplica)</label>
-            <input type="number"
-                   name="total_personas"
-                   id="total_personas_main"
-                   class="form-control"
-                   min="0"
-                   disabled>
-            <small class="form-text text-muted">
-              Solo se habilita para eventos que requieren actualizar personas a bordo.
-            </small>
-          </div>
+  <!-- 3) Detalle cuando es INCIDENTE -->
+  <div class="form-group" id="grupo_incidente" style="display:none;">
+    <label for="idaccion_incidente">Detalle del incidente</label>
+    <select id="idaccion_incidente" class="form-control">
+      <option value="">Seleccione…</option>
 
-          <div class="form-group">
-            <label for="comentario_main">Comentario (opcional)</label>
-            <input type="text"
-                   name="comentario"
-                   id="comentario_main"
-                   class="form-control">
-          </div>
+      <!-- Crítico -->
+      <?php if (!empty($accionesCritico)): ?>
+        <optgroup label="Crítico">
+          <?php foreach ($accionesCritico as $a): ?>
+            <?php
+              $requiere = accionRequierePersonas($a['nombre'], $accionesRequierenPersonas) ? '1' : '0';
+            ?>
+            <option value="<?= (int)$a['idaccion'] ?>"
+                    data-requiere-personas="<?= $requiere ?>">
+              <?= htmlspecialchars($a['nombre']) ?>
+            </option>
+          <?php endforeach; ?>
+        </optgroup>
+      <?php endif; ?>
 
-          <button type="submit" class="btn btn-primary btn-block mb-2">
-            Enviar reporte
-          </button>
-        </form>
+      <!-- Inconveniente -->
+      <?php if (!empty($accionesInconveniente)): ?>
+        <optgroup label="Inconveniente">
+          <?php foreach ($accionesInconveniente as $a): ?>
+            <?php
+              $requiere = accionRequierePersonas($a['nombre'], $accionesRequierenPersonas) ? '1' : '0';
+            ?>
+            <option value="<?= (int)$a['idaccion'] ?>"
+                    data-requiere-personas="<?= $requiere ?>">
+              <?= htmlspecialchars($a['nombre']) ?>
+            </option>
+          <?php endforeach; ?>
+        </optgroup>
+      <?php endif; ?>
+    </select>
+  </div>
 
+  <!-- 4) Cantidad de personas (se activa solo si aplica) -->
+  <div class="form-group">
+    <label for="total_personas_main">Cantidad de personas que subieron</label>
+    <input type="number"
+           name="total_personas"
+           id="total_personas_main"
+           class="form-control"
+           min="0"
+           disabled>
+    <small class="form-text text-muted">
+      Solo se habilita para eventos como “Salida hacia el estadio” o “Salida de parada”.
+    </small>
+  </div>
+
+  <div class="form-group">
+    <label for="comentario">Comentario (opcional)</label>
+    <input type="text"
+           name="comentario"
+           id="comentario"
+           class="form-control">
+  </div>
+
+  <button type="submit" class="btn btn-primary btn-block">
+    Enviar reporte
+  </button>
+</form>
         <hr>
 
         <!-- Botón de ubicación SOLO disponible cuando ya hay primer reporte -->
@@ -606,93 +677,148 @@ $accionesRequierenPersonasJs = json_encode($accionesRequierenPersonas);
 // Reglas compartidas: nombres de acciones que requieren personas (desde PHP)
 const ACCIONES_REQUIEREN_PERSONAS = <?= $accionesRequierenPersonasJs ?> || [];
 
-// Normalizar cadenas a minúsculas
-function normalize(str) {
-  return (str || '').toString().trim().toLowerCase();
-}
+// --- Lógica de selects y personas ---
+(function () {
+  const tipoReporte      = document.getElementById('tipo_reporte');
+  const grupoNormal      = document.getElementById('grupo_normal');
+  const grupoIncidente   = document.getElementById('grupo_incidente');
+  const selNormal        = document.getElementById('idaccion_normal');
+  const selIncidente     = document.getElementById('idaccion_incidente');
+  const hiddenIdaccion   = document.getElementById('idaccion_real');
+  const inputPersonas    = document.getElementById('total_personas_main');
 
-// Habilitar / deshabilitar campo de personas según la acción elegida
-(function() {
-  const selectAccion   = document.getElementById('idaccion');
-  const inputPersonas  = document.getElementById('total_personas_main');
+  function resetDetalle() {
+    if (selNormal)   selNormal.value = '';
+    if (selIncidente) selIncidente.value = '';
+    hiddenIdaccion.value   = '';
+    inputPersonas.value    = '';
+    inputPersonas.disabled = true;
+    inputPersonas.required = false;
+  }
 
-  if (selectAccion && inputPersonas) {
-    selectAccion.addEventListener('change', function() {
-      const opt    = selectAccion.options[selectAccion.selectedIndex];
-      const nombre = normalize(opt.getAttribute('data-nombre') || '');
+  function aplicarDesdeSelect(select) {
+    const opt = select.options[select.selectedIndex];
+    if (!opt || !opt.value) {
+      hiddenIdaccion.value   = '';
+      inputPersonas.value    = '';
+      inputPersonas.disabled = true;
+      inputPersonas.required = false;
+      return;
+    }
 
-      let requiere = false;
-      ACCIONES_REQUIEREN_PERSONAS.forEach(txt => {
-        if (nombre.includes(normalize(txt))) {
-          requiere = true;
-        }
-      });
+    hiddenIdaccion.value = opt.value;
 
-      if (requiere) {
-        inputPersonas.disabled = false;
-        inputPersonas.required = true;
+    const requiere = opt.dataset.requierePersonas === '1';
+    if (requiere) {
+      inputPersonas.disabled = false;
+      inputPersonas.required = true;
+    } else {
+      inputPersonas.value    = '';
+      inputPersonas.disabled = true;
+      inputPersonas.required = false;
+    }
+  }
+
+  if (tipoReporte) {
+    tipoReporte.addEventListener('change', function () {
+      resetDetalle();
+
+      if (this.value === 'normal') {
+        grupoNormal.style.display    = 'block';
+        grupoIncidente.style.display = 'none';
+      } else if (this.value === 'incidente') {
+        grupoNormal.style.display    = 'none';
+        grupoIncidente.style.display = 'block';
       } else {
-        inputPersonas.value    = '';
-        inputPersonas.disabled = true;
-        inputPersonas.required = false;
+        grupoNormal.style.display    = 'none';
+        grupoIncidente.style.display = 'none';
       }
     });
   }
 
-  // Botón "Enviar ubicación"
+  if (selNormal) {
+    selNormal.addEventListener('change', function () {
+      aplicarDesdeSelect(this);
+    });
+  }
+
+  if (selIncidente) {
+    selIncidente.addEventListener('change', function () {
+      aplicarDesdeSelect(this);
+    });
+  }
+
+  // --- Aquí DEJAS tal cual el código que ya tienes de "Enviar ubicación" ---
   const btnUbicacion = document.getElementById('btnUbicacion');
   if (btnUbicacion) {
     btnUbicacion.addEventListener('click', function() {
-      if (!navigator.geolocation) {
-        alert('La geolocalización no es soportada en este dispositivo.');
-        return;
-      }
-
-      btnUbicacion.disabled   = true;
-      btnUbicacion.textContent = 'Enviando ubicación...';
-
-      navigator.geolocation.getCurrentPosition(
-        function(pos) {
-          const lat    = pos.coords.latitude;
-          const lng    = pos.coords.longitude;
-          const idruta = <?= (int)$idruta ?>;
-
-          fetch('guardar_ubicacion.php', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/x-www-form-urlencoded'
-            },
-            body:
-              'lat='   + encodeURIComponent(lat)   +
-              '&lng='  + encodeURIComponent(lng)   +
-              '&idruta=' + encodeURIComponent(idruta)
-          })
-          .then(r => r.json())
-          .then(data => {
-            if (data && data.success) {
-              alert('Ubicación enviada correctamente.');
-            } else {
-              alert('Error al guardar la ubicación.');
-            }
-          })
-          .catch(() => {
-            alert('Error al enviar la ubicación.');
-          })
-          .finally(() => {
-            btnUbicacion.disabled    = false;
-            btnUbicacion.textContent = 'Enviar ubicación';
-          });
-        },
-        function(err) {
-          alert('No se pudo obtener la ubicación: ' + err.message);
-          btnUbicacion.disabled    = false;
-          btnUbicacion.textContent = 'Enviar ubicación';
-        }
-      );
+      // ... tu código existente de geolocalización y fetch ...
     });
   }
 })();
 </script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const tipoReporte = document.getElementById('tipo_reporte');
+  const grupoNormal = document.getElementById('grupo_normal');
+  const grupoIncidente = document.getElementById('grupo_incidente');
+  const selNormal = document.getElementById('idaccion_normal');
+  const selIncidente = document.getElementById('idaccion_incidente');
+  const inputPersonas = document.getElementById('total_personas');
+
+  function actualizarInputPersonas(select) {
+    const opt = select.options[select.selectedIndex];
+    const requiere = opt && opt.dataset.requierePersonas === '1';
+    if (requiere) {
+      inputPersonas.disabled = false;
+    } else {
+      inputPersonas.disabled = true;
+      inputPersonas.value = '';
+    }
+  }
+
+  tipoReporte.addEventListener('change', function () {
+    const v = this.value;
+
+    if (v === 'normal') {
+      grupoNormal.style.display = 'block';
+      selNormal.disabled = false;
+
+      grupoIncidente.style.display = 'none';
+      selIncidente.disabled = true;
+      selIncidente.value = '';
+
+      actualizarInputPersonas(selNormal);
+
+    } else if (v === 'incidente') {
+      grupoIncidente.style.display = 'block';
+      selIncidente.disabled = false;
+
+      grupoNormal.style.display = 'none';
+      selNormal.disabled = true;
+      selNormal.value = '';
+
+      actualizarInputPersonas(selIncidente);
+    } else {
+      grupoNormal.style.display = 'none';
+      grupoIncidente.style.display = 'none';
+      selNormal.disabled = true;
+      selIncidente.disabled = true;
+      inputPersonas.disabled = true;
+      inputPersonas.value = '';
+    }
+  });
+
+  selNormal.addEventListener('change', function () {
+    actualizarInputPersonas(this);
+  });
+
+  selIncidente.addEventListener('change', function () {
+    actualizarInputPersonas(this);
+  });
+});
+</script>
+
 
 </body>
 </html>

@@ -68,66 +68,253 @@ require __DIR__ . '/../templates/header.php';
             <div class="card-header">
               <h3 class="card-title">Datos generales de la ruta</h3>
             </div>
-            <form id="formRuta">
+           <form id="formRuta" autocomplete="off">
+              <input type="hidden" id="idruta" value="<?= (int)$idruta ?>">
               <div class="card-body">
-                <input type="hidden" id="idruta" value="<?= $idruta ?>">
-
-                <div class="form-group">
-                  <label for="nombreRuta">Nombre</label>
-                  <input type="text" id="nombreRuta" class="form-control" required>
-                </div>
-
-                <div class="form-group">
-                  <label for="destino">Destino</label>
-                  <input type="text" id="destino" class="form-control" required>
-                </div>
-
-                <div class="form-group">
-                  <label for="encargadoRuta">Encargado</label>
-                  <select id="encargadoRuta" class="form-control" required>
-                    <option value="">Seleccione</option>
-                    <?php foreach($encargados as $e): ?>
-                      <option value="<?= $e['idencargado_ruta'] ?>">
-                        <?= htmlspecialchars($e['nombre']) ?>
-                      </option>
-                    <?php endforeach; ?>
-                  </select>
-                </div>
-
-                <div class="form-group">
-                  <label for="bus">Bus</label>
-                  <select id="bus" class="form-control" required>
-                    <option value="">Seleccione</option>
-                    <?php foreach($buses as $b): ?>
-                      <option value="<?= $b['idbus'] ?>">
-                        <?= htmlspecialchars($b['placa'].' '.($b['proveedor']?:'')) ?>
-                      </option>
-                    <?php endforeach; ?>
-                  </select>
-                </div>
-
-                <div class="form-group">
-                  <label for="agente">Agente asignado</label>
-                  <select id="agente" class="form-control" required>
-                    <option value="">Seleccione</option>
-                    <?php foreach($agentes as $a): ?>
-                      <option value="<?= $a['idagente'] ?>">
-                        <?= htmlspecialchars($a['nombre']) ?>
-                      </option>
-                    <?php endforeach; ?>
-                  </select>
-                </div>
+              <!-- Datos básicos de la ruta -->
+              <div class="mb-2">
+                <label for="nombreRuta">Nombre de la ruta</label>
+                <input
+                  type="text"
+                  class="form-control"
+                  id="nombreRuta"
+                  name="nombre"
+                  placeholder="Ej. Ruta 01 San Salvador"
+                  required
+                >
               </div>
 
-              <div class="card-footer d-flex justify-content-between">
-                <div>
-                  <button id="btnGuardarRuta" class="btn btn-success" type="button">
-                    <i class="fas fa-save mr-1"></i> Guardar ruta
-                  </button>
-                  <button id="btnNuevo" class="btn btn-secondary" type="button">
-                    Nuevo
-                  </button>
+              <div class="mb-2">
+                <label for="destinoRuta">Destino</label>
+                <input
+                  type="text"
+                  class="form-control"
+                  id="destinoRuta"
+                  name="destino"
+                  placeholder="Ej. Estadio Mágico González"
+                  required
+                >
+              </div>
+
+              <!-- Líder de ruta (encargado) -->
+              <div class="mb-2">
+                <label for="encargadoRuta">Encargado de ruta (Líder)</label>
+                <select
+                  class="form-control"
+                  id="encargadoRuta"
+                  name="idencargado_ruta"
+                >
+                  <option value="">— Sin líder asignado —</option>
+                  <?php foreach ($encargados as $e): ?>
+                    <option
+                      value="<?= (int)$e['idencargado_ruta'] ?>"
+                      data-telefono="<?= htmlspecialchars($e['telefono'] ?? '') ?>"
+                    >
+                      <?= htmlspecialchars($e['nombre']) ?>
+                      <?php if (!empty($e['telefono'])): ?>
+                        (<?= htmlspecialchars($e['telefono']) ?>)
+                      <?php endif; ?>
+                    </option>
+                  <?php endforeach; ?>
+                </select>
+                <small class="form-text text-muted" id="ayudaClaveLider">
+                  Selecciona un líder de ruta.  
+                  La clave inicial para ingresar al módulo de reportes será su número de teléfono.
+                  Luego podrás cambiarla en “Listado de rutas”.
+                </small>
+              </div>
+
+              <!-- NUEVO: Líderes de grupo -->
+              <div class="mb-2">
+                <label for="lideresGrupo">Líder(es) de grupo</label>
+                <input
+                  type="text"
+                  class="form-control"
+                  id="lideresGrupo"
+                  name="lideres_grupo"
+                  placeholder="Ej. Juan Pérez, Ana López"
+                >
+                <small class="form-text text-muted">
+                  Puedes ingresar uno o varios nombres de líderes de grupo separados por coma.
+                </small>
+              </div>
+
+              <!-- NUEVO: Centro escolar -->
+              <div class="mb-2">
+                <label for="centroEscolar">Centro escolar al que pertenece</label>
+                <input
+                  type="text"
+                  class="form-control"
+                  id="centroEscolar"
+                  name="centro_escolar"
+                  placeholder="Nombre del centro escolar"
+                >
+              </div>
+
+              <!-- NUEVO: Ubicación administrativa -->
+              <div class="mb-2">
+                <label for="departamento">Departamento (El Salvador)</label>
+                <select
+                  class="form-control"
+                  id="departamento"
+                  name="departamento"
+                >
+                  <option value="">— Seleccione —</option>
+                  <option value="Ahuachapán">Ahuachapán</option>
+                  <option value="Santa Ana">Santa Ana</option>
+                  <option value="Sonsonate">Sonsonate</option>
+                  <option value="Chalatenango">Chalatenango</option>
+                  <option value="La Libertad">La Libertad</option>
+                  <option value="San Salvador">San Salvador</option>
+                  <option value="Cuscatlán">Cuscatlán</option>
+                  <option value="La Paz">La Paz</option>
+                  <option value="Cabañas">Cabañas</option>
+                  <option value="San Vicente">San Vicente</option>
+                  <option value="Usulután">Usulután</option>
+                  <option value="San Miguel">San Miguel</option>
+                  <option value="Morazán">Morazán</option>
+                  <option value="La Unión">La Unión</option>
+                </select>
+              </div>
+
+              <div class="mb-2">
+                <label for="municipio">Municipio</label>
+                <input
+                  type="text"
+                  class="form-control"
+                  id="municipio"
+                  name="municipio"
+                  placeholder="Municipio"
+                >
+              </div>
+
+              <!-- NUEVO: Link de Google Maps de la ruta -->
+              <div class="mb-2">
+                <label for="linkMapaRuta">Link de Google Maps de la ruta a seguir</label>
+                <input
+                  type="url"
+                  class="form-control"
+                  id="linkMapaRuta"
+                  name="link_mapa_ruta"
+                  placeholder="Pega aquí el enlace de Google Maps"
+                >
+                <small class="form-text text-muted">
+                  Usa el enlace compartido de la ruta sugerida en Google Maps.
+                </small>
+              </div>
+
+              <!-- NUEVO: Punto de abordaje y horarios -->
+              <div class="mb-2">
+                <label for="puntoAbordaje">Punto de abordaje</label>
+                <input
+                  type="text"
+                  class="form-control"
+                  id="puntoAbordaje"
+                  name="punto_abordaje"
+                  placeholder="Ej. Parque central del municipio"
+                >
+              </div>
+
+              <div class="mb-2">
+                <label for="horaAbordaje">Hora de abordaje</label>
+                <input
+                  type="time"
+                  class="form-control"
+                  id="horaAbordaje"
+                  name="hora_abordaje"
+                >
+              </div>
+
+              <div class="mb-2">
+                <label for="horaSalidaEstadio">Hora de salida hacia el estadio</label>
+                <input
+                  type="time"
+                  class="form-control"
+                  id="horaSalidaEstadio"
+                  name="hora_salida_estadio"
+                >
+              </div>
+
+              <!-- NUEVO: Estimado de personas -->
+              <div class="mb-2">
+                <label for="estimadoPersonas">Estimado de personas</label>
+                <input
+                  type="number"
+                  class="form-control"
+                  id="estimadoPersonas"
+                  name="estimado_personas"
+                  min="0"
+                  placeholder="Ej. 45"
+                >
+              </div>
+
+              <!-- NUEVO: Ubicación geográfica (lat / lng) -->
+              <div class="mb-2">
+                <label>Ubicación geográfica del punto de abordaje</label>
+                <div class="form-row">
+                  <div class="col">
+                    <input
+                      type="text"
+                      class="form-control"
+                      id="latitud"
+                      name="latitud"
+                      placeholder="Latitud"
+                    >
+                  </div>
+                  <div class="col">
+                    <input
+                      type="text"
+                      class="form-control"
+                      id="longitud"
+                      name="longitud"
+                      placeholder="Longitud"
+                    >
+                  </div>
                 </div>
+                <small class="form-text text-muted">
+                  Puedes obtener estos datos desde Google Maps (clic derecho &gt; “¿Qué hay aquí?”).
+                </small>
+              </div>
+
+              <!-- Bus y agente (igual que antes) -->
+              <div class="mb-2">
+                <label for="bus">Bus asignado (placa)</label>
+                <select
+                  class="form-control"
+                  id="bus"
+                  name="idbus"
+                >
+                  <option value="">— Sin bus asignado —</option>
+                  <?php foreach ($buses as $b): ?>
+                    <option value="<?= (int)$b['idbus'] ?>">
+                      <?= htmlspecialchars($b['placa']) ?>
+                      <?php if (!empty($b['proveedor'])): ?>
+                        - <?= htmlspecialchars($b['proveedor']) ?>
+                      <?php endif; ?>
+                    </option>
+                  <?php endforeach; ?>
+                </select>
+              </div>
+
+              <div class="mb-3">
+                <label for="agente">Agente DI responsable</label>
+                <select
+                  class="form-control"
+                  id="agente"
+                  name="idagente"
+                >
+                  <option value="">— Sin agente asignado —</option>
+                  <?php foreach ($agentes as $a): ?>
+                    <option value="<?= (int)$a['idagente'] ?>">
+                      <?= htmlspecialchars($a['nombre']) ?>
+                    </option>
+                  <?php endforeach; ?>
+                </select>
+              </div>
+
+              <button type="button" class="btn btn-primary btn-block" id="btnGuardarRuta">
+                Guardar ruta
+              </button>
               </div>
             </form>
           </div>
@@ -478,6 +665,30 @@ $(function() {
         $('#panelParadas').show();
         $('#panelListadoParadas').show();
     }
+});
+document.addEventListener('DOMContentLoaded', function () {
+  const selEncargado = document.getElementById('encargadoRuta');
+  const ayudaClave   = document.getElementById('ayudaClaveLider');
+
+  if (!selEncargado || !ayudaClave) return;
+
+  function actualizarTextoClave() {
+    const opt = selEncargado.options[selEncargado.selectedIndex];
+    const tel = opt ? (opt.getAttribute('data-telefono') || '') : '';
+
+    if (tel) {
+      ayudaClave.textContent =
+        'La clave actual del líder será su número de teléfono: ' +
+        tel +
+        '. Esta clave se puede cambiar desde “Listado de rutas”.';
+    } else {
+      ayudaClave.textContent =
+        'Selecciona un líder de ruta. La clave inicial para ingresar al módulo de reportes será su número de teléfono. Luego podrás cambiarla en “Listado de rutas”.';
+    }
+  }
+
+  selEncargado.addEventListener('change', actualizarTextoClave);
+  actualizarTextoClave();
 });
 </script>
 

@@ -37,13 +37,27 @@ try {
             $estado = null;
         }
 
-        // SQL: get route basic info + last report aggregated fields
+        // SQL: get route basic info + last report + suma de personas
         $sql = "
             SELECT r.idruta, r.nombre AS ruta_nombre, r.destino, r.flag_arrival,
                    b.idbus, b.placa, b.capacidad AS bus_capacidad,
                    er.nombre AS encargado_nombre,
-                   lr.total_personas, lr.total_becarios, lr.total_menores12, lr.fecha_reporte,
-                   lr.idaccion, a.nombre AS accion_nombre, a.tipo_accion
+
+                   -- último reporte (para saber qué pasó de último)
+                   lr.total_personas       AS total_personas_ultimo,
+                   lr.total_becarios,
+                   lr.total_menores12,
+                   lr.fecha_reporte,
+                   lr.idaccion,
+                   a.nombre AS accion_nombre,
+                   a.tipo_accion,
+
+                   -- suma de personas de todos los reportes de la ruta
+                   (
+                       SELECT COALESCE(SUM(rp.total_personas), 0)
+                       FROM reporte rp
+                       WHERE rp.idruta = r.idruta
+                   ) AS total_personas_sum
             FROM ruta r
             LEFT JOIN bus b ON r.idbus = b.idbus
             LEFT JOIN encargado_ruta er ON r.idencargado_ruta = er.idencargado_ruta
@@ -82,23 +96,25 @@ try {
                 }
             }
             // % uso bus (si capacidad disponible)
-            $cap = isset($r['bus_capacidad']) && $r['bus_capacidad'] > 0 ? (int)$r['bus_capacidad'] : null;
-            $ocup = isset($r['total_personas']) ? (int)$r['total_personas'] : 0;
-            $pct_uso = $cap ? round(($ocup / $cap) * 100, 1) : null;
+$cap      = isset($r['bus_capacidad']) && $r['bus_capacidad'] > 0 ? (int)$r['bus_capacidad'] : null;
+$personasSum = isset($r['total_personas_sum']) ? (int)$r['total_personas_sum'] : 0;
+$personasUlt = isset($r['total_personas_ultimo']) ? (int)$r['total_personas_ultimo'] : 0;
 
-            $out[] = [
-                'idruta' => (int)$r['idruta'],
-                'ruta_nombre' => $r['ruta_nombre'],
-                'destino' => $r['destino'],
-                'flag_arrival' => (int)$r['flag_arrival'],
-                'placa' => $r['placa'],
-                'bus_capacidad' => $cap,
+$pct_uso = $cap ? round(($personasSum / $cap) * 100, 1) : null;
+
+$out[] = [
+    'idruta' => (int)$r['idruta'],
+    'ruta_nombre' => $r['ruta_nombre'],
+    'destino' => $r['destino'],
+    'bus_capacidad' => $cap,
                 'ocupado_ultimo' => $ocup,
                 'pct_uso' => $pct_uso,
                 'encargado' => $r['encargado_nombre'],
                 'fecha_reporte' => $r['fecha_reporte'],
                 'status' => $status,
-                'accion_nombre' => $r['accion_nombre']
+                'accion_nombre' => $r['accion_nombre'],
+                'total_personas' => $personasSum,
+                'total_personas_ultimo' => $personasUlt,
             ];
         }
 

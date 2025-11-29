@@ -115,6 +115,11 @@ $sqlRep = "
 $stmtRep = $pdo->prepare($sqlRep);
 $stmtRep->execute([':idruta' => $idruta]);
 $reportes = $stmtRep->fetchAll(PDO::FETCH_ASSOC);
+// 4. Cálculos
+$totalEstimado = array_sum(array_column($paradas, 'estimado_personas'));
+// $totalReportado ya viene calculado en el bloque anterior
+$avance = ($totalEstimado > 0) ? round(($totalReportado / $totalEstimado) * 100) : 0;
+
 
 /* -------------------------------------------------------
    5. Métricas globales
@@ -146,25 +151,60 @@ foreach ($reportes as $r) {
     ];
 }
 
-// Personas por parada
+// Personas por parada (incluyendo abordajes sin parada explícita)
 $personasPorParada = [];
+
+// Cargar paradas conocidas
 foreach ($paradas as $p) {
-    $personasPorParada[$p['idparada']] = [
+    $personasPorParada[(int)$p['idparada']] = [
         'nombre'   => $p['punto_abordaje'],
         'orden'    => (int)$p['orden'],
         'total'    => 0,
         'estimado' => (int)($p['estimado_personas'] ?? 0),
     ];
 }
+
+// Bucket para reportes sin parada (idparada 0 / null)
+$bucketSinParada = [
+    'nombre'   => 'Abordaje inicial / sin parada',
+    'orden'    => -1,   // aparece al inicio
+    'total'    => 0,
+    'estimado' => 0,
+];
+
+$totalReportado = 0; // total global de personas reportadas en la ruta
+
 foreach ($reportes as $r) {
-    if (!isset($personasPorParada[$r['idparada']])) {
+    $personas = (int)$r['total_personas'];
+
+    // ignorar incidentes o registros sin personas
+    if ($personas <= 0 || (int)($r['critico'] ?? 0) === 1) {
         continue;
     }
-    $personasPorParada[$r['idparada']]['total'] += (int)$r['total_personas'];
+
+    $idp = (int)($r['idparada'] ?? 0);
+
+    // sumar al total global
+    $totalReportado += $personas;
+
+    if (isset($personasPorParada[$idp])) {
+        // reporte asociado a una parada conocida
+        $personasPorParada[$idp]['total'] += $personas;
+    } else {
+        // reporte sin parada conocida (ej. salida hacia estadio)
+        $bucketSinParada['total'] += $personas;
+    }
 }
+
+// si hubo personas sin parada, agregamos ese bucket a la lista
+if ($bucketSinParada['total'] > 0) {
+    $personasPorParada[0] = $bucketSinParada;
+}
+
+// ordenar por orden de parada (el “sin parada” queda primero si orden=-1)
 usort($personasPorParada, fn($a, $b) => $a['orden'] <=> $b['orden']);
 
-// Paradas con coordenadas para el mapa
+// Paradas con coordenadas para el mapa (esto lo dejas igual)
 $paradasMapa = array_values(array_filter($paradas, fn($p) =>
     !empty($p['latitud']) && !empty($p['longitud'])
 ));
