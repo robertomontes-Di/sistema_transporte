@@ -68,7 +68,7 @@ require __DIR__ . '/../templates/header.php';
             <div class="card-header">
               <h3 class="card-title">Datos generales de la ruta</h3>
             </div>
-           <form id="formRuta" autocomplete="off">
+           <form id="formRuta" action="admin_ruta.php" method="POST">
               <input type="hidden" id="idruta" value="<?= (int)$idruta ?>">
               <div class="card-body">
               <!-- Datos básicos de la ruta -->

@@ -14,116 +14,141 @@ if ($action) {
     // STATS
     // -----------------------------------------------------------------
     if ($action === 'stats') {
-        try {
-            // 1) total_reported: suma de total_personas del último reporte por ruta
-            $sql_total_reported = "
-                SELECT COALESCE(SUM(rp.total_personas),0) AS total_reported
-                FROM (
-                    SELECT r1.idruta, r1.total_personas
-                    FROM reporte r1
-                    INNER JOIN (
-                        SELECT idruta, MAX(fecha_reporte) AS max_fecha
-                        FROM reporte
-                        GROUP BY idruta
-                    ) mx ON r1.idruta = mx.idruta AND r1.fecha_reporte = mx.max_fecha
-                ) rp
-            ";
-            $total_reported = (int)$pdo->query($sql_total_reported)->fetchColumn();
+    // KPIs globales:
+    // - personas_en_estadio: suma de personas en rutas que ya llegaron al estadio
+    // - total_estimated: suma de estimado_personas en todas las paradas
+    // - routes_en_estadio: rutas con flag_arrival = 1
+    // - routes_en_transito: rutas con flag_arrival = 0
+    // - routes_total: total de rutas
+    // - sin_problema / inconveniente / falla: según el ÚLTIMO reporte de cada ruta
+    try {
+        // 1) Personas reportadas (todas, no solo en estadio) - lo dejamos por compatibilidad
+        $sql_total_reported = "
+            SELECT COALESCE(SUM(total_personas),0) AS total_reported
+            FROM reporte
+            WHERE critico = 0
+        ";
+        $total_reported = (int)$pdo->query($sql_total_reported)->fetchColumn();
 
-            // 2) total_estimated: suma de estimado_personas en todas las paradas
-            $sql_total_estimated = "SELECT COALESCE(SUM(estimado_personas),0) FROM paradas";
-            $total_estimated = (int)$pdo->query($sql_total_estimated)->fetchColumn();
+        // 2) Personas reportadas en rutas que YA están en el estadio
+        $sql_personas_en_estadio = "
+            SELECT COALESCE(SUM(rp.total_personas),0) AS personas_en_estadio
+            FROM reporte rp
+            INNER JOIN ruta ru ON ru.idruta = rp.idruta
+            WHERE rp.critico = 0
+              AND ru.flag_arrival = 1
+        ";
+        $personas_en_estadio = (int)$pdo->query($sql_personas_en_estadio)->fetchColumn();
 
-            // 3) rutas activas: flag_arrival = 0
-            $sql_routes_active = "SELECT COUNT(*) FROM ruta WHERE flag_arrival = 0";
-            $routes_active = (int)$pdo->query($sql_routes_active)->fetchColumn();
+        // 3) Personas estimadas (suma de todas las paradas)
+        $sql_total_estimated = "
+            SELECT COALESCE(SUM(estimado_personas),0)
+            FROM paradas
+        ";
+        $total_estimated = (int)$pdo->query($sql_total_estimated)->fetchColumn();
 
-            // 4) conteo de rutas por estado, usando el ÚLTIMO reporte por ruta
-            //    Convención:
-            //    tipo_accion = normal        → sin_problema
-            //    tipo_accion = inconveniente → inconveniente
-            //    tipo_accion = critico       → critico
-            $sql_status_counts = "
-                SELECT
-                    SUM(
-                        CASE 
-                          WHEN lr.idaccion IS NULL 
-                               OR a.tipo_accion = 'normal'
-                               OR a.tipo_accion IS NULL
-                          THEN 1 ELSE 0 
-                        END
-                    ) AS sin_problema,
-                    SUM(
-                        CASE 
-                          WHEN a.tipo_accion = 'inconveniente' 
-                          THEN 1 ELSE 0 
-                        END
-                    ) AS inconveniente,
-                    SUM(
-                        CASE 
-                          WHEN a.tipo_accion = 'critico' 
-                          THEN 1 ELSE 0 
-                        END
-                    ) AS critico
-                FROM (
-                    SELECT r1.idruta, r1.idaccion
-                    FROM reporte r1
-                    INNER JOIN (
-                        SELECT idruta, MAX(fecha_reporte) AS max_fecha
-                        FROM reporte
-                        GROUP BY idruta
-                    ) mx ON r1.idruta = mx.idruta AND r1.fecha_reporte = mx.max_fecha
-                ) lr
-                LEFT JOIN acciones a ON lr.idaccion = a.idaccion
-            ";
-            $status = $pdo->query($sql_status_counts)->fetch(PDO::FETCH_ASSOC) ?: [
-                'sin_problema'  => 0,
-                'inconveniente' => 0,
-                'critico'       => 0,
-            ];
+        // 4) Rutas en estadio (flag_arrival = 1)
+        $sql_routes_estadio = "SELECT COUNT(*) FROM ruta WHERE flag_arrival = 1";
+        $routes_en_estadio = (int)$pdo->query($sql_routes_estadio)->fetchColumn();
 
-            // 5) total de rutas
-            $sql_total_routes = "SELECT COUNT(*) FROM ruta";
-            $total_routes = (int)$pdo->query($sql_total_routes)->fetchColumn();
+        // 5) Rutas en tránsito (flag_arrival = 0)
+        $sql_routes_transito = "SELECT COUNT(*) FROM ruta WHERE flag_arrival = 0";
+        $routes_en_transito = (int)$pdo->query($sql_routes_transito)->fetchColumn();
 
-            echo json_encode([
-                'total_reported'  => $total_reported,
-                'total_estimated' => $total_estimated,
-                'routes_active'   => $routes_active,
-                'routes_total'    => $total_routes,
-                'sin_problema'    => (int)($status['sin_problema'] ?? 0),
-                'inconveniente'   => (int)($status['inconveniente'] ?? 0),
-                'critico'         => (int)($status['critico'] ?? 0),
-            ]);
-            exit;
-        } catch (Exception $e) {
-            http_response_code(500);
-            echo json_encode(['error' => 'Error en stats: ' . $e->getMessage()]);
-            exit;
-        }
+        // 6) Total de rutas
+        $sql_total_routes = "SELECT COUNT(*) FROM ruta";
+        $routes_total = (int)$pdo->query($sql_total_routes)->fetchColumn();
+
+        // 7) Conteo de rutas por estado según el ÚLTIMO reporte
+        // tipo_accion:
+        //   - 'critico'       → falla
+        //   - 'inconveniente' → inconveniente
+        //   - 'normal' o NULL → sin_problema
+        $sql_status_counts = "
+            SELECT
+                SUM(CASE WHEN lr.idaccion IS NULL THEN 1 ELSE 0 END) AS sin_problema,
+                SUM(CASE WHEN lr.idaccion IS NOT NULL AND a.tipo_accion = 'critico' THEN 1 ELSE 0 END) AS falla,
+                SUM(CASE WHEN lr.idaccion IS NOT NULL AND a.tipo_accion = 'inconveniente' THEN 1 ELSE 0 END) AS inconveniente
+            FROM ruta rt
+            LEFT JOIN (
+                SELECT r1.idruta, r1.idaccion
+                FROM reporte r1
+                INNER JOIN (
+                    SELECT idruta, MAX(fecha_reporte) AS max_fecha
+                    FROM reporte
+                    GROUP BY idruta
+                ) mx ON r1.idruta = mx.idruta AND r1.fecha_reporte = mx.max_fecha
+            ) lr ON lr.idruta = rt.idruta
+            LEFT JOIN acciones a ON a.idaccion = lr.idaccion
+        ";
+        $status = $pdo->query($sql_status_counts)->fetch(PDO::FETCH_ASSOC) ?: [
+            'sin_problema'  => 0,
+            'inconveniente' => 0,
+            'falla'         => 0,
+        ];
+
+        // Respuesta JSON
+        $resp = [
+            // Viejo KPI (por si tu JS aún lo usa)
+            'total_reported'   => $total_reported,
+            'total_estimated'  => $total_estimated,
+
+            // Nuevo KPI que quieres: Personas en estadio / Personas estimadas
+            'personas_en_estadio' => $personas_en_estadio,
+
+            // Nuevos KPIs: Rutas en estadio / Rutas en tránsito
+            'routes_en_estadio'  => $routes_en_estadio,
+            'routes_en_transito' => $routes_en_transito,
+
+            // Total de rutas
+            'routes_total'     => $routes_total,
+
+            // Estados
+            'sin_problema'     => (int)$status['sin_problema'],
+            'inconveniente'    => (int)$status['inconveniente'],
+            'falla'            => (int)$status['falla'],
+        ];
+        echo json_encode($resp);
+        exit;
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Error en stats: ' . $e->getMessage()]);
+        exit;
     }
+}
 
-    // -----------------------------------------------------------------
-    // MAP
+
+       // MAP
     // -----------------------------------------------------------------
     if ($action === 'map') {
         try {
             $sql = "
-                SELECT r.idruta, r.nombre AS ruta_nombre, b.placa, b.conductor,
-                       rep.total_personas, rep.total_becarios, rep.total_menores12,
-                       rep.fecha_reporte, p.latitud, p.longitud,
-                       rep.idaccion, a.nombre AS accion_nombre, a.tipo_accion
+                SELECT
+                    r.idruta,
+                    r.nombre AS ruta_nombre,
+                    b.placa,
+                    b.conductor,
+                    rep.total_personas,
+                    rep.total_becarios,
+                    rep.total_menores12,
+                    rep.fecha_reporte,
+                    p.latitud,
+                    p.longitud,
+                    rep.idaccion,
+                    a.nombre AS accion_nombre,
+                    a.tipo_accion
                 FROM ruta r
-                LEFT JOIN (
-                    -- último reporte por ruta
-                    SELECT r1.*
-                    FROM reporte r1
-                    INNER JOIN (
-                        SELECT idruta, MAX(fecha_reporte) AS max_fecha
-                        FROM reporte
-                        GROUP BY idruta
-                    ) mx ON r1.idruta = mx.idruta AND r1.fecha_reporte = mx.max_fecha
-                ) rep ON rep.idruta = r.idruta
+                LEFT JOIN reporte rep
+                    ON rep.idreporte = (
+                        SELECT r1.idreporte
+                        FROM reporte r1
+                        LEFT JOIN paradas p1 ON r1.idparada = p1.idparada
+                        WHERE r1.idruta = r.idruta
+                          AND p1.latitud IS NOT NULL
+                          AND p1.longitud IS NOT NULL
+                        ORDER BY r1.fecha_reporte DESC
+                        LIMIT 1
+                    )
                 LEFT JOIN paradas p ON rep.idparada = p.idparada
                 LEFT JOIN acciones a ON rep.idaccion = a.idaccion
                 LEFT JOIN bus b ON r.idbus = b.idbus
@@ -329,7 +354,7 @@ require __DIR__ . '/../templates/header.php';
 
         <div class="card mb-3">
           <div class="card-header">
-            <h3 class="card-title">Total personas: Reportadas vs Estimadas</h3>
+            <h3 class="card-title">Total personas: En estadio vs Estimadas</h3>
           </div>
           <div class="card-body">
             <div id="chartPersons" style="width:100%;height:260px;"></div>
@@ -429,16 +454,30 @@ async function renderKpisAndChart(){
   try {
     const stats = await fetchStats();
 
-    // Actualizar KPIs
-    $('#kpi_total_reported').text(fmtNumber(stats.total_reported));
-    $('#kpi_total_estimated').text(fmtNumber(stats.total_estimated));
-    $('#kpi_routes_active').text(fmtNumber(stats.routes_active));
-    $('#kpi_sin_problema').text(fmtNumber(stats.sin_problema));
-    $('#kpi_inconveniente').text(fmtNumber(stats.inconveniente));
-    $('#kpi_critico').text(fmtNumber(stats.critico));
+    // ---------- KPIs ----------
+    // Personas en estadio / estimadas
+    $('#kpi_total_reported').text(
+      fmtNumber(stats.personas_en_estadio || 0)
+    );
+    $('#kpi_total_estimated').text(
+      fmtNumber(stats.total_estimated || 0)
+    );
+
+    // Rutas en estadio / en tránsito (en un solo tile)
+    const rutasEstadio  = stats.routes_en_estadio  || 0;
+    const rutasTransito = stats.routes_en_transito || 0;
+    $('#kpi_routes_active').text(
+      fmtNumber(rutasEstadio) + ' / ' + fmtNumber(rutasTransito)
+    );
+
+    // Estados de rutas
+    $('#kpi_sin_problema').text(fmtNumber(stats.sin_problema || 0));
+    $('#kpi_inconveniente').text(fmtNumber(stats.inconveniente || 0));
+    $('#kpi_critico').text(fmtNumber(stats.falla || 0));
+
     $('#last-update').text(new Date().toLocaleString());
 
-    // ---------- ECharts: Personas reportadas vs estimadas ----------
+    // ---------- ECharts: Personas en estadio vs estimadas ----------
     if (!chartPersons) {
       chartPersons = echarts.init(document.getElementById('chartPersons'));
     }
@@ -447,7 +486,7 @@ async function renderKpisAndChart(){
       tooltip: { trigger: 'axis' },
       xAxis: {
         type: 'category',
-        data: ['Reportadas', 'Estimadas']
+        data: ['En estadio', 'Estimadas']
       },
       yAxis: {
         type: 'value',
@@ -456,7 +495,7 @@ async function renderKpisAndChart(){
       series: [{
         type: 'bar',
         data: [
-          stats.total_reported || 0,
+          stats.personas_en_estadio || 0,
           stats.total_estimated || 0
         ],
         label: {
@@ -468,44 +507,44 @@ async function renderKpisAndChart(){
 
     chartPersons.setOption(personsOption);
 
-      // Chart: Estado de las rutas
-      if (!chartStatus) {
-        chartStatus = echarts.init(document.getElementById('chartStatus'));
-      }
+    // ---------- ECharts: Estado de las rutas ----------
+    if (!chartStatus) {
+      chartStatus = echarts.init(document.getElementById('chartStatus'));
+    }
 
-      const statusOption = {
-        tooltip: {
-          trigger: 'item',
-          formatter: '{b}: {c} ({d}%)'
+    const statusOption = {
+      tooltip: {
+        trigger: 'item',
+        formatter: '{b}: {c} ({d}%)'
+      },
+      legend: {
+        orient: 'horizontal',
+        bottom: 0
+      },
+      color: [
+        '#046205', // Sin problema
+        '#ffa500', // Inconveniente
+        '#ff004c'  // Crítico
+      ],
+      series: [{
+        name: 'Estado',
+        type: 'pie',
+        radius: ['40%', '70%'],
+        avoidLabelOverlap: false,
+        label: {
+          show: true,
+          formatter: '{b}: {c}'
         },
-        legend: {
-          orient: 'horizontal',
-          bottom: 0
-        },
-        color: [
-          '#046205', // Sin problema
-          '#ffa500', // Inconveniente
-          '#ff004c'  // Crítico
-        ],
-        series: [{
-          name: 'Estado',
-          type: 'pie',
-          radius: ['40%', '70%'],
-          avoidLabelOverlap: false,
-          label: {
-            show: true,
-            formatter: '{b}: {c}'
-          },
-          labelLine: { show: true },
-          data: [
-            { value: stats.sin_problema || 0,  name: 'Sin problema' },
-            { value: stats.inconveniente || 0, name: 'Inconveniente' },
-            { value: stats.critico || 0,       name: 'Crítico' }
-          ]
-        }]
-      };
+        labelLine: { show: true },
+        data: [
+          { value: stats.sin_problema   || 0, name: 'Sin problema' },
+          { value: stats.inconveniente  || 0, name: 'Inconveniente' },
+          { value: stats.falla          || 0, name: 'Crítico' }
+        ]
+      }]
+    };
 
-      chartStatus.setOption(statusOption);
+    chartStatus.setOption(statusOption);
 
   } catch (err) {
     console.error(err);

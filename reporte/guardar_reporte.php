@@ -229,62 +229,55 @@ if ($formStep === 'primer_reporte' && $idAccionSalida) {
 // ==================================================
 // 3) FORM: Nuevo reporte general
 // ==================================================
-// ---------- FORM 3: Nuevo reporte general ----------
+// --- Tu código existente para guardar un nuevo reporte ---
+
 if ($formStep === 'nuevo_reporte') {
-    $idaccion      = isset($_POST['idaccion']) ? (int)$_POST['idaccion'] : 0;
-    $totalPersonas = ($_POST['total_personas'] ?? '') !== ''
-                        ? (int)$_POST['total_personas'] : 0;
-    $comentario    = trim($_POST['comentario'] ?? '');
-
-    if ($idaccion <= 0) {
-        $errors[] = 'Debe seleccionar el tipo de reporte.';
-    }
-
-    // Validar que exista al menos una parada configurada
-    if (!$idParadaDefault) {
-        $errors[] = 'La ruta no tiene paradas configuradas. Contacte al área de soporte.';
-    }
-
-    // Buscar nombre de la acción para aplicar la misma regla de negocio que en el front
-    $nombreAccion = null;
-    if ($idaccion > 0) {
-        foreach ($acciones as $a) {
-            if ((int)$a['idaccion'] === $idaccion) {
-                $nombreAccion = $a['nombre'];
-                break;
-            }
-        }
-    }
-
-    $requierePersonas = accionRequierePersonas($nombreAccion, $accionesRequierenPersonas);
-
-    if ($requierePersonas && $totalPersonas <= 0) {
-        $errors[] = 'Debe indicar la cantidad de personas para esta acción.';
-    }
+    // ... (aquí va tu validación de datos existente)
 
     if (!$errors) {
         try {
+            $pdo->beginTransaction(); // Iniciar transacción para seguridad
+
+            // 1. OBTENER EL NOMBRE DE LA ACCIÓN SELECCIONADA
+            $stmtNombre = $pdo->prepare("SELECT nombre FROM acciones WHERE idaccion = :idaccion LIMIT 1");
+            $stmtNombre->execute([':idaccion' => $idaccion]);
+            $nombreAccion = $stmtNombre->fetchColumn();
+
+            // 2. INSERTAR EL REPORTE (como ya lo haces)
             $stmt = $pdo->prepare("
                 INSERT INTO reporte
-                    (idruta, idagente, idparada, idaccion,
-                     total_personas, total_becarios, total_menores12,
-                     comentario, fecha_reporte)
+                    (idruta, idparada, idaccion, total_personas, comentario, fecha_reporte)
                 VALUES
-                    (:idruta, NULL, :idparada, :idaccion,
-                     :total, 0, 0,
-                     :comentario, NOW())
+                    (:idruta, :idparada, :idaccion, :total, :comentario, NOW())
             ");
             $stmt->execute([
                 ':idruta'     => $idruta,
-                ':idparada'   => $idParadaDefault,
+                ':idparada'   => 0, // Usas 0 para reportes de líder
                 ':idaccion'   => $idaccion,
                 ':total'      => $totalPersonas,
                 ':comentario' => $comentario
             ]);
 
+            // 3. LÓGICA ADICIONAL: ACTUALIZAR LA BANDERA SI ES NECESARIO
+            // Comprobamos si el nombre de la acción es el de llegada al estadio
+            if ($nombreAccion === 'LLegada a Estadio Magico Gonzales') {
+                $stmtUpdate = $pdo->prepare("
+                    UPDATE ruta
+                    SET flag_llegada_estadio = 1,
+                        fecha_llegada_estadio = NOW()
+                    WHERE idruta = :idruta
+                ");
+                $stmtUpdate->execute([':idruta' => $idruta]);
+            }
+            
+            // Si todo fue bien, confirmamos los cambios
+            $pdo->commit();
+
             $success = 'Reporte registrado correctamente.';
+
         } catch (Throwable $e) {
-            $errors[] = 'Error al guardar el reporte.';
+            $pdo->rollBack(); // Revertir cambios si algo falla
+            $errors[] = 'Error al guardar el reporte: ' . $e->getMessage();
         }
     }
 }
