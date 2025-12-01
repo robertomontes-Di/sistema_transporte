@@ -104,7 +104,15 @@ body {
         <button type="submit" class="btn btn-primary btn-block">
           Ingresar
         </button>
-
+        <!-- Botón de asistencia por WhatsApp -->
+        <a href="https://wa.me/50372075356?text=Hola%2C%20necesito%20asistencia%20con%20mi%20reporte%20de%20ruta" 
+          target="_blank"
+          class="btn btn-success btn-block mt-3 d-flex align-items-center justify-content-center"
+          style="background-color:#25D366;border-color:#1ebe5d;font-size:16px;font-weight:600;">
+            <img src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg" 
+                alt="WhatsApp" width="22" height="22" class="mr-2">
+            ¿Necesitas asistencia?
+        </a>
       </form>
 
     </div>

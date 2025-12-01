@@ -177,15 +177,29 @@ if ($formStep === 'config_bus') {
 // ==================================================
 // 2) FORM: Primer reporte “Salida hacia el estadio”
 // ==================================================
-// ---------- FORM 2: Primer reporte “Salida hacia el estadio” ----------
 if ($formStep === 'primer_reporte' && $idAccionSalida) {
 
-    // Seguridad extra: si ya existe, NO permitir duplicado aunque fuercen el POST
+    // Seguridad extra: si ya existe, NO permitir duplicado
     if ($tienePrimerReporte) {
         $errors[] = "El primer reporte ('Salida hacia el estadio') ya fue enviado hoy.";
     }
 
-    // Validar que exista al menos una parada configurada
+    // Obtener la parada principal (primera parada de la ruta)
+    $idParadaDefault = null;
+    try {
+        $stmtParada = $pdo->prepare("
+            SELECT idparada
+            FROM paradas
+            WHERE idruta = :idruta
+            ORDER BY orden ASC
+            LIMIT 1
+        ");
+        $stmtParada->execute([':idruta' => $idruta]);
+        $idParadaDefault = $stmtParada->fetchColumn();
+    } catch (Throwable $e) {
+        $idParadaDefault = null;
+    }
+
     if (!$idParadaDefault) {
         $errors[] = 'La ruta no tiene paradas configuradas. Contacte al área de soporte.';
     }
@@ -199,6 +213,10 @@ if ($formStep === 'primer_reporte' && $idAccionSalida) {
 
     if (!$errors) {
         try {
+            // Dejamos el INSERT + UPDATE en una transacción
+            $pdo->beginTransaction();
+
+            // 1) Insertar el primer reporte
             $stmt = $pdo->prepare("
                 INSERT INTO reporte
                     (idruta, idagente, idparada, idaccion,
@@ -217,10 +235,24 @@ if ($formStep === 'primer_reporte' && $idAccionSalida) {
                 ':comentario' => $comentario
             ]);
 
-            $success            = 'Primer reporte registrado correctamente (Salida hacia el estadio).';
+            // 2) Activar la ruta cuando sale hacia el estadio
+            $stmtActiva = $pdo->prepare("
+                UPDATE ruta
+                SET activa = 1
+                WHERE idruta = :idruta
+            ");
+            $stmtActiva->execute([':idruta' => $idruta]);
+
+            $pdo->commit();
+
+            // Para el frontend (respuesta JSON)
+            $success            = true;
+            $nextStep           = 'nuevo_reporte';
             $tienePrimerReporte = true;
+
         } catch (Throwable $e) {
-            $errors[] = 'Error al guardar el primer reporte.';
+            $pdo->rollBack();
+            $errors[] = 'Error al guardar el primer reporte: ' . $e->getMessage();
         }
     }
 }

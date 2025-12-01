@@ -68,8 +68,7 @@ try {
 $configBus = null;
 try {
     $stmt = $pdo->prepare("
-        SELECT idruta, nombre_motorista, telefono_motorista,
-               capacidad_aprox, placa
+        SELECT idruta, nombre_motorista, telefono_motorista, placa
         FROM ruta_config_bus
         WHERE idruta = :idruta
         LIMIT 1
@@ -189,8 +188,8 @@ $success = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $formStep = $_POST['form_step'] ?? '';
 
-// ---------- FORM 1: Configuración del bus ----------
-if ($formStep === 'config_bus') {
+    // ---------- FORM 1: Configuración del bus ----------
+    if ($formStep === 'config_bus') {
     $nombreMotorista = trim($_POST['nombre_motorista'] ?? '');
     $telMotorista    = trim($_POST['telefono_motorista'] ?? '');
     $capacidad       = (isset($_POST['capacidad_aprox']) && $_POST['capacidad_aprox'] !== '')
@@ -298,115 +297,140 @@ if ($formStep === 'config_bus') {
     }
 }
 
+// ---------- FORM 2: Primer reporte “Salida hacia el estadio” ----------
+if ($formStep === 'primer_reporte' && $idAccionSalida) {
 
-    // ---------- FORM 2: Primer reporte “Salida hacia el estadio” ----------
-    if ($formStep === 'primer_reporte' && $idAccionSalida) {
+    if ($tienePrimerReporte) {
+        $errors[] = "El primer reporte ('Salida hacia el estadio') ya fue enviado hoy.";
+    }
 
-        if ($tienePrimerReporte) {
-            $errors[] = "El primer reporte ('Salida hacia el estadio') ya fue enviado hoy.";
-        }
+    $totalPersonas = isset($_POST['total_personas']) ? (int)$_POST['total_personas'] : 0;
+    $comentario    = trim($_POST['comentario'] ?? '');
 
-        $totalPersonas = isset($_POST['total_personas']) ? (int)$_POST['total_personas'] : 0;
-        $comentario    = trim($_POST['comentario'] ?? '');
+    if ($totalPersonas <= 0) {
+        $errors[] = 'Debe indicar la cantidad de personas a bordo.';
+    }
 
-        if ($totalPersonas <= 0) {
-            $errors[] = 'Debe indicar la cantidad de personas a bordo.';
-        }
+    if (!$errors) {
+        try {
+            // Usaremos idparada = 0 para los reportes del líder de ruta
+            $idparada = 0;
 
-        if (!$errors) {
-            try {
-                // Usaremos idparada = 0 para los reportes del líder de ruta
-                $idparada = 0;
+            $stmt = $pdo->prepare("
+                INSERT INTO reporte
+                    (idruta, idagente, idparada, idaccion,
+                    total_personas, total_becarios, total_menores12,
+                    comentario, fecha_reporte)
+                VALUES
+                    (:idruta, NULL, :idparada, :idaccion,
+                    :total, 0, 0,
+                    :comentario, NOW())
+            ");
+            $stmt->execute([
+                ':idruta'     => $idruta,
+                ':idparada'   => $idparada,
+                ':idaccion'   => $idAccionSalida,
+                ':total'      => $totalPersonas,
+                ':comentario' => $comentario
+            ]);
 
-                $stmt = $pdo->prepare("
-                    INSERT INTO reporte
-                        (idruta, idagente, idparada, idaccion,
-                        total_personas, total_becarios, total_menores12,
-                        comentario, fecha_reporte)
-                    VALUES
-                        (:idruta, NULL, :idparada, :idaccion,
-                        :total, 0, 0,
-                        :comentario, NOW())
-                ");
-                $stmt->execute([
-                    ':idruta'     => $idruta,
-                    ':idparada'   => $idparada,
-                    ':idaccion'   => $idAccionSalida,
-                    ':total'      => $totalPersonas,
-                    ':comentario' => $comentario
-                ]);
+            // 🔥 ACTIVAR la ruta cuando se envía "Salida hacia el estadio"
+            $stmtActiva = $pdo->prepare("UPDATE ruta SET activa = 1 WHERE idruta = :idruta");
+            $stmtActiva->execute([':idruta' => $idruta]);
 
+            // Si no se actualizó ninguna fila, mostramos un aviso para debug en la pantalla
+            if ($stmtActiva->rowCount() === 0) {
+                $errors[] = 'Aviso: no se actualizó ninguna fila en ruta (idruta='.(int)$idruta.').';
+            } else {
                 $success            = 'Primer reporte registrado correctamente (Salida hacia el estadio).';
                 $tienePrimerReporte = true;
-            } catch (Throwable $e) {
-                $errors[] = 'Error al guardar el reporte: ' . $e->getMessage();
+            }
+
+        } catch (Throwable $e) {
+            $errors[] = 'Error al guardar el reporte: ' . $e->getMessage();
+        }
+    }
+}
+
+// ---------- FORM 3: Nuevo reporte general ----------
+if ($formStep === 'nuevo_reporte') {
+    $idaccion   = isset($_POST['idaccion']) ? (int)$_POST['idaccion'] : 0;
+    $rawTotal   = trim($_POST['total_personas'] ?? '');
+    $totalPersonas = ($rawTotal !== '') ? max(0, (int)$rawTotal) : 0;
+    $comentario = trim($_POST['comentario'] ?? '');
+
+    if ($idaccion <= 0) {
+        $errors[] = 'Debe seleccionar el tipo de reporte.';
+    }
+
+    $nombreAccion = null;
+    if ($idaccion > 0) {
+        foreach ($acciones as $a) {
+            if ((int)$a['idaccion'] === $idaccion) {
+                $nombreAccion = $a['nombre'];
+                break;
             }
         }
     }
 
-  // ---------- FORM 3: Nuevo reporte general ----------
-  if ($formStep === 'nuevo_reporte') {
-      $idaccion   = isset($_POST['idaccion']) ? (int)$_POST['idaccion'] : 0;
-      $rawTotal   = trim($_POST['total_personas'] ?? '');
-      $totalPersonas = ($rawTotal !== '') ? max(0, (int)$rawTotal) : 0;
-      $comentario = trim($_POST['comentario'] ?? '');
+    // ¿Esta acción suma personas?
+    $requierePersonas = accionRequierePersonas($nombreAccion, $accionesRequierenPersonas);
 
-      if ($idaccion <= 0) {
-          $errors[] = 'Debe seleccionar el tipo de reporte.';
-      }
+    // Solo obligamos número de personas para las acciones que suman
+    if ($requierePersonas && $totalPersonas <= 0) {
+        $errors[] = 'Debe indicar la cantidad de personas para esta acción.';
+    }
 
-      $nombreAccion = null;
-      if ($idaccion > 0) {
-          foreach ($acciones as $a) {
-              if ((int)$a['idaccion'] === $idaccion) {
-                  $nombreAccion = $a['nombre'];
-                  break;
-              }
-          }
-      }
+    // Si NO suma personas (incidentes, llegadas, etc.), forzamos a 0
+    if (!$requierePersonas) {
+        $totalPersonas = 0;
+    }
 
-      // ¿Esta acción suma personas?
-      $requierePersonas = accionRequierePersonas($nombreAccion, $accionesRequierenPersonas);
+    if (!$errors) {
+        try {
+            // Para este flujo usamos idparada = 0 por ahora
+            $idparada = 0;
 
-      // Solo obligamos número de personas para las acciones que suman
-      if ($requierePersonas && $totalPersonas <= 0) {
-          $errors[] = 'Debe indicar la cantidad de personas para esta acción.';
-      }
+            $stmt = $pdo->prepare("
+                INSERT INTO reporte
+                    (idruta, idagente, idparada, idaccion,
+                     total_personas, total_becarios, total_menores12,
+                     comentario, fecha_reporte)
+                VALUES
+                    (:idruta, NULL, :idparada, :idaccion,
+                     :total, 0, 0,
+                     :comentario, NOW())
+            ");
+            $stmt->execute([
+                ':idruta'     => $idruta,
+                ':idparada'   => $idparada,
+                ':idaccion'   => $idaccion,
+                ':total'      => $totalPersonas, // aquí llegan solo incrementos
+                ':comentario' => $comentario
+            ]);
 
-      // Si NO suma personas (incidentes, llegadas, etc.), forzamos a 0
-      if (!$requierePersonas) {
-          $totalPersonas = 0;
-      }
+            // 🔥 ACTIVAR LA RUTA AL REGISTRAR CUALQUIER NUEVO REPORTE
+            $pdo->prepare("
+                UPDATE ruta
+                SET activa = 1
+                WHERE idruta = :idruta
+            ")->execute([':idruta' => $idruta]);
 
-      if (!$errors) {
-          try {
-              // Para este flujo usamos idparada = 0 por ahora
-              $idparada = 0;
+            // 🔥 LLEGADA AL ESTADIO (idaccion = 16) → marcar flag_arrival = 1
+            if ($idaccion === 16) {
+                $pdo->prepare("
+                    UPDATE ruta
+                    SET flag_arrival = 1
+                    WHERE idruta = :idruta
+                ")->execute([':idruta' => $idruta]);
+            }
 
-              $stmt = $pdo->prepare("
-                  INSERT INTO reporte
-                      (idruta, idagente, idparada, idaccion,
-                      total_personas, total_becarios, total_menores12,
-                      comentario, fecha_reporte)
-                  VALUES
-                      (:idruta, NULL, :idparada, :idaccion,
-                      :total, 0, 0,
-                      :comentario, NOW())
-              ");
-              $stmt->execute([
-                  ':idruta'     => $idruta,
-                  ':idparada'   => $idparada,
-                  ':idaccion'   => $idaccion,
-                  ':total'      => $totalPersonas, // aquí llegan solo incrementos
-                  ':comentario' => $comentario
-              ]);
-
-              $success = 'Reporte registrado correctamente.';
-          } catch (Throwable $e) {
-              $errors[] = 'Error al guardar el reporte: ' . $e->getMessage();
-          }
-      }
-  }
+            $success = 'Reporte registrado correctamente.';
+        } catch (Throwable $e) {
+            $errors[] = 'Error al guardar el reporte: ' . $e->getMessage();
+        }
+    }
+}
 }
 
 // ===============================
@@ -533,7 +557,7 @@ $accionesRequierenPersonasJs = json_encode($accionesRequierenPersonas);
                    required>
           </div>
 
-          <div class="form-group">
+          <!-- <div class="form-group">
             <label for="capacidad_aprox">Capacidad aproximada del autobús</label>
             <input type="number"
                    name="capacidad_aprox"
@@ -542,7 +566,7 @@ $accionesRequierenPersonasJs = json_encode($accionesRequierenPersonas);
                    min="0"
                    max="100"
                    placeholder="Ejemplo. 100">
-          </div>
+          </div> -->
 
           <div class="form-group">
             <label for="placa">Placa</label>

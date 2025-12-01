@@ -10,107 +10,105 @@ if ($action) {
     // MODO API JSON
     header('Content-Type: application/json; charset=utf-8');
 
-    // -----------------------------------------------------------------
-    // STATS
-    // -----------------------------------------------------------------
-    if ($action === 'stats') {
-    // KPIs globales:
-    // - personas_en_estadio: suma de personas en rutas que ya llegaron al estadio
-    // - total_estimated: suma de estimado_personas en todas las paradas
-    // - routes_en_estadio: rutas con flag_arrival = 1
-    // - routes_en_transito: rutas con flag_arrival = 0
-    // - routes_total: total de rutas
-    // - sin_problema / inconveniente / falla: según el ÚLTIMO reporte de cada ruta
+if ($action === 'stats') {
     try {
-        // 1) Personas reportadas (todas, no solo en estadio) - lo dejamos por compatibilidad
-        $sql_total_reported = "
-            SELECT COALESCE(SUM(total_personas),0) AS total_reported
-            FROM reporte
-            WHERE critico = 0
-        ";
-        $total_reported = (int)$pdo->query($sql_total_reported)->fetchColumn();
-
-        // 2) Personas reportadas en rutas que YA están en el estadio
-        $sql_personas_en_estadio = "
+        // --------------------------------------------------------
+        // 1) PERSONAS EN ESTADIO (en realidad: personas reportadas
+        //    en el último reporte de cada ruta ACTIVA)
+        // --------------------------------------------------------
+        $sqlPersonas = "
             SELECT COALESCE(SUM(rp.total_personas),0) AS personas_en_estadio
-            FROM reporte rp
-            INNER JOIN ruta ru ON ru.idruta = rp.idruta
-            WHERE rp.critico = 0
-              AND ru.flag_arrival = 1
-        ";
-        $personas_en_estadio = (int)$pdo->query($sql_personas_en_estadio)->fetchColumn();
-
-        // 3) Personas estimadas (suma de todas las paradas)
-        $sql_total_estimated = "
-            SELECT COALESCE(SUM(estimado_personas),0)
-            FROM paradas
-        ";
-        $total_estimated = (int)$pdo->query($sql_total_estimated)->fetchColumn();
-
-        // 4) Rutas en estadio (flag_arrival = 1)
-        $sql_routes_estadio = "SELECT COUNT(*) FROM ruta WHERE flag_arrival = 1";
-        $routes_en_estadio = (int)$pdo->query($sql_routes_estadio)->fetchColumn();
-
-        // 5) Rutas en tránsito (flag_arrival = 0)
-        $sql_routes_transito = "SELECT COUNT(*) FROM ruta WHERE flag_arrival = 0";
-        $routes_en_transito = (int)$pdo->query($sql_routes_transito)->fetchColumn();
-
-        // 6) Total de rutas
-        $sql_total_routes = "SELECT COUNT(*) FROM ruta";
-        $routes_total = (int)$pdo->query($sql_total_routes)->fetchColumn();
-
-        // 7) Conteo de rutas por estado según el ÚLTIMO reporte
-        // tipo_accion:
-        //   - 'critico'       → falla
-        //   - 'inconveniente' → inconveniente
-        //   - 'normal' o NULL → sin_problema
-        $sql_status_counts = "
-            SELECT
-                SUM(CASE WHEN lr.idaccion IS NULL THEN 1 ELSE 0 END) AS sin_problema,
-                SUM(CASE WHEN lr.idaccion IS NOT NULL AND a.tipo_accion = 'critico' THEN 1 ELSE 0 END) AS falla,
-                SUM(CASE WHEN lr.idaccion IS NOT NULL AND a.tipo_accion = 'inconveniente' THEN 1 ELSE 0 END) AS inconveniente
-            FROM ruta rt
-            LEFT JOIN (
-                SELECT r1.idruta, r1.idaccion
+            FROM (
+                SELECT r1.idruta, r1.total_personas
                 FROM reporte r1
                 INNER JOIN (
                     SELECT idruta, MAX(fecha_reporte) AS max_fecha
                     FROM reporte
                     GROUP BY idruta
-                ) mx ON r1.idruta = mx.idruta AND r1.fecha_reporte = mx.max_fecha
-            ) lr ON lr.idruta = rt.idruta
+                ) mx ON r1.idruta = mx.idruta
+                     AND r1.fecha_reporte = mx.max_fecha
+            ) rp
+            INNER JOIN ruta ru ON ru.idruta = rp.idruta
+            WHERE ru.activa = 1
+        ";
+        $personas_en_estadio = (int)$pdo->query($sqlPersonas)->fetchColumn();
+
+        // --------------------------------------------------------
+        // 2) TOTAL ESTIMADO (paradas) SOLO DE RUTAS ACTIVAS
+        // --------------------------------------------------------
+        $sqlEstimated = "
+            SELECT COALESCE(SUM(p.estimado_personas),0) AS total_estimated
+            FROM paradas p
+            INNER JOIN ruta r ON r.idruta = p.idruta
+            WHERE r.activa = 1
+        ";
+        $total_estimated = (int)$pdo->query($sqlEstimated)->fetchColumn();
+
+        // 3) routes_active: rutas con activa = 1
+        $sql_routes_active = "SELECT COUNT(*) FROM ruta WHERE activa = 1";
+        $routes_active = (int)$pdo->query($sql_routes_active)->fetchColumn();
+
+        // 4) routes_total: total de rutas
+        $sql_routes_total = "SELECT COUNT(*) FROM ruta";
+        $routes_total = (int)$pdo->query($sql_routes_total)->fetchColumn();
+
+        // --------------------------------------------------------
+        // 5) ESTADO DE RUTAS (sin problema / inconveniente / crítico)
+        //    según ÚLTIMO reporte por ruta (todas las rutas)
+        // --------------------------------------------------------
+        $sqlStatus = "
+            SELECT
+                SUM(
+                    CASE WHEN lr.idaccion IS NULL THEN 1 ELSE 0 END
+                ) AS sin_problema,
+                SUM(
+                    CASE
+                        WHEN lr.idaccion IS NOT NULL
+                             AND LOWER(a.tipo_accion) = 'critico'
+                        THEN 1 ELSE 0
+                    END
+                ) AS falla,
+                SUM(
+                    CASE
+                        WHEN lr.idaccion IS NOT NULL
+                             AND LOWER(a.tipo_accion) = 'inconveniente'
+                        THEN 1 ELSE 0
+                    END
+                ) AS inconveniente
+            FROM ruta r
+            LEFT JOIN (
+                SELECT r1.*
+                FROM reporte r1
+                INNER JOIN (
+                    SELECT idruta, MAX(fecha_reporte) AS max_fecha
+                    FROM reporte
+                    GROUP BY idruta
+                ) mx ON r1.idruta = mx.idruta
+                     AND r1.fecha_reporte = mx.max_fecha
+            ) lr ON lr.idruta = r.idruta
             LEFT JOIN acciones a ON a.idaccion = lr.idaccion
         ";
-        $status = $pdo->query($sql_status_counts)->fetch(PDO::FETCH_ASSOC) ?: [
+        $status = $pdo->query($sqlStatus)->fetch(PDO::FETCH_ASSOC) ?: [
             'sin_problema'  => 0,
-            'inconveniente' => 0,
             'falla'         => 0,
+            'inconveniente' => 0,
         ];
 
-        // Respuesta JSON
-        $resp = [
-            // Viejo KPI (por si tu JS aún lo usa)
-            'total_reported'   => $total_reported,
-            'total_estimated'  => $total_estimated,
-
-            // Nuevo KPI que quieres: Personas en estadio / Personas estimadas
+        // --------------------------------------------------------
+        // RESPUESTA JSON PARA EL FRONT
+        // --------------------------------------------------------
+        echo json_encode([
             'personas_en_estadio' => $personas_en_estadio,
-
-            // Nuevos KPIs: Rutas en estadio / Rutas en tránsito
-            'routes_en_estadio'  => $routes_en_estadio,
-            'routes_en_transito' => $routes_en_transito,
-
-            // Total de rutas
-            'routes_total'     => $routes_total,
-
-            // Estados
-            'sin_problema'     => (int)$status['sin_problema'],
-            'inconveniente'    => (int)$status['inconveniente'],
-            'falla'            => (int)$status['falla'],
-        ];
-        echo json_encode($resp);
+            'total_estimated'     => $total_estimated,
+            'routes_en_estadio'   => $routes_en_estadio,
+            'routes_en_transito'  => $routes_en_transito,
+            'sin_problema'        => (int)$status['sin_problema'],
+            'inconveniente'       => (int)$status['inconveniente'],
+            'falla'               => (int)$status['falla'],
+        ]);
         exit;
-    } catch (Exception $e) {
+
+    } catch (Throwable $e) {
         http_response_code(500);
         echo json_encode(['error' => 'Error en stats: ' . $e->getMessage()]);
         exit;
@@ -120,81 +118,100 @@ if ($action) {
 
        // MAP
     // -----------------------------------------------------------------
-    if ($action === 'map') {
-        try {
-            $sql = "
-                SELECT
-                    r.idruta,
-                    r.nombre AS ruta_nombre,
-                    b.placa,
-                    b.conductor,
-                    rep.total_personas,
-                    rep.total_becarios,
-                    rep.total_menores12,
-                    rep.fecha_reporte,
-                    p.latitud,
-                    p.longitud,
-                    rep.idaccion,
-                    a.nombre AS accion_nombre,
-                    a.tipo_accion
-                FROM ruta r
-                LEFT JOIN reporte rep
-                    ON rep.idreporte = (
-                        SELECT r1.idreporte
-                        FROM reporte r1
-                        LEFT JOIN paradas p1 ON r1.idparada = p1.idparada
-                        WHERE r1.idruta = r.idruta
-                          AND p1.latitud IS NOT NULL
-                          AND p1.longitud IS NOT NULL
-                        ORDER BY r1.fecha_reporte DESC
-                        LIMIT 1
-                    )
-                LEFT JOIN paradas p ON rep.idparada = p.idparada
-                LEFT JOIN acciones a ON rep.idaccion = a.idaccion
-                LEFT JOIN bus b ON r.idbus = b.idbus
-                WHERE p.latitud IS NOT NULL AND p.longitud IS NOT NULL
-            ";
-            $rows = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
 
-            $out = [];
-            foreach ($rows as $row) {
-                // tipo_accion = critico → 'critico'
-                // tipo_accion = normal o idaccion NULL → 'sin_problema'
-                // otro (inconveniente, etc.) → 'inconveniente'
+if ($action === 'map') {
+    try {
+        // Para cada ruta: último reporte (si existe) + TODAS sus paradas
+        $sql = "
+            SELECT
+                r.idruta,
+                r.nombre AS ruta_nombre,
+                b.placa,
+                b.conductor,
+                rep.total_personas,
+                rep.total_becarios,
+                rep.total_menores12,
+                rep.fecha_reporte,
+                rep.idaccion,
+                a.nombre AS accion_nombre,
+                a.tipo_accion,
+                p.idparada,
+                p.latitud,
+                p.longitud,
+                p.orden
+            FROM ruta r
+            LEFT JOIN (
+                -- último reporte por ruta
+                SELECT r1.*
+                FROM reporte r1
+                INNER JOIN (
+                    SELECT idruta, MAX(fecha_reporte) AS max_fecha
+                    FROM reporte
+                    GROUP BY idruta
+                ) mx ON r1.idruta = mx.idruta AND r1.fecha_reporte = mx.max_fecha
+            ) rep ON rep.idruta = r.idruta
+            LEFT JOIN acciones a ON a.idaccion = rep.idaccion
+            LEFT JOIN bus b ON b.idbus = r.idbus
+            LEFT JOIN paradas p ON p.idruta = r.idruta
+            WHERE p.latitud IS NOT NULL
+              AND p.longitud IS NOT NULL
+            ORDER BY r.idruta, p.orden
+        ";
+        $rows = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+
+        // Agrupamos por ruta
+        $routes = [];
+        foreach ($rows as $row) {
+            $idruta = (int)$row['idruta'];
+
+            if (!isset($routes[$idruta])) {
+                // Status según tipo_accion del último reporte
                 $status = 'sin_problema';
                 if (!empty($row['idaccion'])) {
                     $tipo = strtolower($row['tipo_accion'] ?? '');
                     if ($tipo === 'critico') {
                         $status = 'critico';
-                    } elseif ($tipo === 'normal' || $tipo === '') {
-                        $status = 'sin_problema';
-                    } else {
+                    } elseif ($tipo === 'inconveniente') {
                         $status = 'inconveniente';
+                    } else {
+                        $status = 'sin_problema';
                     }
                 }
 
-                $out[] = [
-                    'idruta'         => $row['idruta'],
-                    'ruta_nombre'    => $row['ruta_nombre'],
-                    'placa'          => $row['placa'],
-                    'conductor'      => $row['conductor'],
-                    'total_personas' => (int)$row['total_personas'],
-                    'total_becarios' => (int)$row['total_becarios'],
-                    'fecha_reporte'  => $row['fecha_reporte'],
-                    'lat'            => $row['latitud'],
-                    'lng'            => $row['longitud'],
-                    'status'         => $status,
-                    'accion_nombre'  => $row['accion_nombre'],
+                $routes[$idruta] = [
+                    'idruta'          => $idruta,
+                    'ruta_nombre'     => $row['ruta_nombre'],
+                    'placa'           => $row['placa'],
+                    'conductor'       => $row['conductor'],
+                    'total_personas'  => (int)$row['total_personas'],
+                    'total_becarios'  => (int)$row['total_becarios'],
+                    'total_menores12' => (int)$row['total_menores12'],
+                    'fecha_reporte'   => $row['fecha_reporte'],
+                    'status'          => $status,
+                    'accion_nombre'   => $row['accion_nombre'],
+                    'path'            => [],  // aquí irán todas las paradas
                 ];
             }
-            echo json_encode($out);
-            exit;
-        } catch (Exception $e) {
-            http_response_code(500);
-            echo json_encode(['error' => 'Error en map: ' . $e->getMessage()]);
-            exit;
+
+            // Agregar punto de la parada
+            if ($row['latitud'] !== null && $row['longitud'] !== null) {
+                $routes[$idruta]['path'][] = [
+                    'lat'   => (float)$row['latitud'],
+                    'lng'   => (float)$row['longitud'],
+                    'orden' => (int)$row['orden'],
+                ];
+            }
         }
+
+        echo json_encode(array_values($routes));
+        exit;
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Error en map: ' . $e->getMessage()]);
+        exit;
     }
+}
+
 
     // -----------------------------------------------------------------
     // RECENT REPORTS
@@ -299,7 +316,7 @@ require __DIR__ . '/../templates/header.php';
         <div class="kpi-tile kpi-blue">
           <div class="kpi-body">
             <div class="kpi-label">Rutas activas</div>
-            <div class="kpi-value" id="kpi_routes_active">0</div>
+            <div class="kpi-value" id="kpi_routes_active">0 / 0</div>
           </div>
           <div class="kpi-icon">
             <i class="fas fa-route"></i>
@@ -422,7 +439,8 @@ require __DIR__ . '/../templates/header.php';
 
 <!-- Scripts específicos de esta página -->
 <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyC2Zm7v7BAdKaA-KAvna0q4y0lQgwvE1V4"></script>
+<!-- Google Maps API -->
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyC2Zm7v7BAdKaA-KAvna0q4y0lQgwvE1V4&libraries=geometry"></script>
 
 <script>
 const apiBase = location.pathname + '?action=';
@@ -463,12 +481,10 @@ async function renderKpisAndChart(){
       fmtNumber(stats.total_estimated || 0)
     );
 
-    // Rutas en estadio / en tránsito (en un solo tile)
-    const rutasEstadio  = stats.routes_en_estadio  || 0;
-    const rutasTransito = stats.routes_en_transito || 0;
-    $('#kpi_routes_active').text(
-      fmtNumber(rutasEstadio) + ' / ' + fmtNumber(rutasTransito)
-    );
+    // Rutas en transito / Rutas Estimado (en un solo tile)
+    document.getElementById('kpi_routes_active').innerText =
+      fmtNumber(stats.routes_active || 0) + ' / ' + fmtNumber(stats.routes_total || 0);
+
 
     // Estados de rutas
     $('#kpi_sin_problema').text(fmtNumber(stats.sin_problema || 0));
@@ -590,6 +606,7 @@ async function renderRecentReports(){
 
 let mapInstance = null;
 let markers = [];
+let routeLines = [];
 
 function colorForStatus(status){
   if (status === 'sin_problema')  return '#046205'; // verde oscuro
@@ -600,10 +617,10 @@ function colorForStatus(status){
 
 async function renderMap(){
   try {
-    const pts = await fetchMapData();
+    const routes = await fetchMapData();
     const mapEl = document.getElementById('map');
 
-    if (!pts || pts.length === 0) {
+    if (!routes || routes.length === 0) {
       mapInstance = new google.maps.Map(mapEl, {
         center: { lat: 13.6929, lng: -89.2182 },
         zoom: 8
@@ -611,48 +628,108 @@ async function renderMap(){
       return;
     }
 
-    const first = pts[0];
+    // Centro inicial: primera parada de la primera ruta
+    let centerLat = 13.6929;
+    let centerLng = -89.2182;
+    if (routes[0].path && routes[0].path.length > 0) {
+      centerLat = parseFloat(routes[0].path[0].lat);
+      centerLng = parseFloat(routes[0].path[0].lng);
+    }
+
     mapInstance = new google.maps.Map(mapEl, {
-      center: { lat: parseFloat(first.lat), lng: parseFloat(first.lng) },
+      center: { lat: centerLat, lng: centerLng },
       zoom: 8
     });
 
-    // Limpiar marcadores anteriores
+    // Limpiar marcadores y polilíneas anteriores
     markers.forEach(m => m.setMap(null));
     markers = [];
+    routeLines.forEach(l => l.setMap(null));
+    routeLines = [];
 
-    pts.forEach(pt => {
-      const color = colorForStatus(pt.status);
+    const bounds = new google.maps.LatLngBounds();
+    const directionsService = new google.maps.DirectionsService();
 
-      // ---------- PIN SVG PERSONALIZADO ----------
+    routes.forEach(rt => {
+      const status = rt.status || 'sin_problema';
+      const color  = colorForStatus(status);
+
+      const pathCoords = (rt.path || []).map(p => ({
+        lat: parseFloat(p.lat),
+        lng: parseFloat(p.lng)
+      }));
+
+      // Dibujar ruta siguiendo calles con Directions
+      if (pathCoords.length >= 2) {
+        const origin      = pathCoords[0];
+        const destination = pathCoords[pathCoords.length - 1];
+        const waypoints   = pathCoords.slice(1, -1).map(p => ({
+          location: p,
+          stopover: false
+        }));
+
+        directionsService.route(
+          {
+            origin,
+            destination,
+            waypoints,
+            travelMode: google.maps.TravelMode.DRIVING,
+            optimizeWaypoints: false
+          },
+          (result, statusDir) => {
+            if (statusDir === google.maps.DirectionsStatus.OK && result.routes.length > 0) {
+              const routePath = result.routes[0].overview_path;
+
+              const polyline = new google.maps.Polyline({
+                path: routePath,
+                geodesic: true,
+                strokeColor: color,
+                strokeOpacity: 0.9,
+                strokeWeight: 3
+              });
+              polyline.setMap(mapInstance);
+              routeLines.push(polyline);
+
+              routePath.forEach(pt => bounds.extend(pt));
+              if (!bounds.isEmpty()) {
+                mapInstance.fitBounds(bounds);
+              }
+            }
+          }
+        );
+      }
+
+      // Marcador en la última parada registrada
+      let markerPos = null;
+      if (pathCoords.length > 0) {
+        markerPos = pathCoords[pathCoords.length - 1];
+      }
+      if (!markerPos) return;
+
       const pinSvg = {
         path: "M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z",
         fillColor: color,
         fillOpacity: 1,
         strokeColor: "#ffffff",
         strokeWeight: 2,
-        // tamaño base del pin
         scale: 1.2,
-        anchor: new google.maps.Point(12, 22) // punta del pin
+        anchor: new google.maps.Point(12, 22)
       };
 
       const marker = new google.maps.Marker({
-        position: {
-          lat: parseFloat(pt.lat),
-          lng: parseFloat(pt.lng)
-        },
+        position: markerPos,
         map: mapInstance,
         icon: pinSvg,
-        title: `Ruta ${pt.ruta_nombre} - ${pt.total_personas || 0} personas`
+        title: `Ruta ${rt.ruta_nombre} - ${rt.total_personas || 0} personas`
       });
 
       const info = `
         <div>
-          <strong>Ruta:</strong> ${pt.ruta_nombre}<br/>
-          <strong>Placa:</strong> ${pt.placa || '-'}<br/>
-          <strong>Personas:</strong> ${pt.total_personas || 0}<br/>
-          <strong>Estado:</strong> ${pt.status}<br/>
-          <small>${pt.accion_nombre || ''}</small>
+          <strong>Ruta:</strong> ${rt.ruta_nombre}<br/>
+          <strong>Placa:</strong> ${rt.placa || '-'}<br/>
+          <strong>Personas:</strong> ${rt.total_personas || 0}<br/>
+          <strong>Estado:</strong> ${status}<br/>
+          <small>${rt.accion_nombre || ''}</small>
         </div>
       `;
       const infow = new google.maps.InfoWindow({ content: info });
@@ -665,15 +742,15 @@ async function renderMap(){
       });
 
       markers.push(marker);
+      bounds.extend(markerPos);
     });
 
-    // Ajustar el zoom para que se vean todos los pines
-    const bounds = new google.maps.LatLngBounds();
-    markers.forEach(m => bounds.extend(m.getPosition()));
-    mapInstance.fitBounds(bounds);
+    if (!bounds.isEmpty()) {
+      mapInstance.fitBounds(bounds);
+    }
 
   } catch (err) {
-    console.error(err);
+    console.error('Error renderMap:', err);
   }
 }
 
