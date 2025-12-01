@@ -189,57 +189,115 @@ $success = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $formStep = $_POST['form_step'] ?? '';
 
-    // ---------- FORM 1: Configuración del bus ----------
-    if ($formStep === 'config_bus') {
-        $nombreMotorista = trim($_POST['nombre_motorista'] ?? '');
-        $telMotorista    = trim($_POST['telefono_motorista'] ?? '');
-        $capacidad       = (isset($_POST['capacidad_aprox']) && $_POST['capacidad_aprox'] !== '')
-                            ? (int)$_POST['capacidad_aprox'] : null;
-        $placa           = trim($_POST['placa'] ?? '');
+// ---------- FORM 1: Configuración del bus ----------
+if ($formStep === 'config_bus') {
+    $nombreMotorista = trim($_POST['nombre_motorista'] ?? '');
+    $telMotorista    = trim($_POST['telefono_motorista'] ?? '');
+    $capacidad       = (isset($_POST['capacidad_aprox']) && $_POST['capacidad_aprox'] !== '')
+                        ? (int)$_POST['capacidad_aprox'] : null;
+    $placa           = trim($_POST['placa'] ?? '');
 
-        if ($nombreMotorista === '') {
-            $errors[] = 'Debe ingresar el nombre del motorista.';
-        }
-        if ($telMotorista === '') {
-            $errors[] = 'Debe ingresar el teléfono del motorista.';
-        }
+    if ($nombreMotorista === '') {
+        $errors[] = 'Debe ingresar el nombre del motorista.';
+    }
+    if ($telMotorista === '') {
+        $errors[] = 'Debe ingresar el teléfono del motorista.';
+    }
 
-        if (!$errors) {
-            try {
-                $stmt = $pdo->prepare("
-                    INSERT INTO ruta_config_bus
-                        (idruta, nombre_motorista, telefono_motorista, capacidad_aprox, placa)
-                    VALUES
-                        (:idruta, :nombre, :tel, :cap, :placa)
-                    ON DUPLICATE KEY UPDATE
-                        nombre_motorista   = VALUES(nombre_motorista),
-                        telefono_motorista = VALUES(telefono_motorista),
-                        capacidad_aprox    = VALUES(capacidad_aprox),
-                        placa              = VALUES(placa),
-                        fecha_actualizado  = CURRENT_TIMESTAMP
-                ");
-                $stmt->execute([
-                    ':idruta' => $idruta,
-                    ':nombre' => $nombreMotorista,
-                    ':tel'    => $telMotorista,
-                    ':cap'    => $capacidad,
-                    ':placa'  => $placa
-                ]);
+    if (!$errors) {
+        try {
+            // Empezamos transacción para dejar todo coherente
+            $pdo->beginTransaction();
 
-                $success = 'Datos del autobús guardados correctamente.';
+            // 1) Guardar / actualizar tabla ruta_config_bus (para saber que ya configuró el bus)
+            $stmt = $pdo->prepare("
+                INSERT INTO ruta_config_bus
+                    (idruta, nombre_motorista, telefono_motorista, capacidad_aprox, placa)
+                VALUES
+                    (:idruta, :nombre, :tel, :cap, :placa)
+                ON DUPLICATE KEY UPDATE
+                    nombre_motorista   = VALUES(nombre_motorista),
+                    telefono_motorista = VALUES(telefono_motorista),
+                    capacidad_aprox    = VALUES(capacidad_aprox),
+                    placa              = VALUES(placa),
+                    fecha_actualizado  = CURRENT_TIMESTAMP
+            ");
+            $stmt->execute([
+                ':idruta' => $idruta,
+                ':nombre' => $nombreMotorista,
+                ':tel'    => $telMotorista,
+                ':cap'    => $capacidad,
+                ':placa'  => $placa
+            ]);
 
-                $configBus = [
-                    'idruta'             => $idruta,
-                    'nombre_motorista'   => $nombreMotorista,
-                    'telefono_motorista' => $telMotorista,
-                    'capacidad_aprox'    => $capacidad,
-                    'placa'              => $placa,
+            // 2) Buscar el idbus de esta ruta
+            $stmtBusId = $pdo->prepare("
+                SELECT idbus
+                FROM ruta
+                WHERE idruta = :idruta
+                LIMIT 1
+            ");
+            $stmtBusId->execute([':idruta' => $idruta]);
+            $idbus = $stmtBusId->fetchColumn();
+
+            // 3) Actualizar tabla bus (solo los campos que vienen del formulario)
+            if ($idbus) {
+                // Si quieres que la capacidad solo se actualice cuando se ponga un número,
+                // armamos dinámicamente el SQL para no tocarla cuando venga null.
+                $sqlBus = "
+                    UPDATE bus
+                    SET placa = :placa,
+                        conductor = :conductor,
+                        telefono = :telefono";
+
+                if ($capacidad !== null) {
+                    $sqlBus .= ",
+                        capacidad_asientos = :capacidad";
+                }
+
+                $sqlBus .= "
+                    WHERE idbus = :idbus
+                ";
+
+                $paramsBus = [
+                    ':placa'     => $placa,
+                    ':conductor' => $nombreMotorista,
+                    ':telefono'  => $telMotorista,
+                    ':idbus'     => $idbus,
                 ];
-            } catch (Throwable $e) {
-                $errors[] = 'Error al guardar el reporte: ' . $e->getMessage();
+
+                if ($capacidad !== null) {
+                    $paramsBus[':capacidad'] = $capacidad;
+                }
+
+                $stmtBus = $pdo->prepare($sqlBus);
+                $stmtBus->execute($paramsBus);
+                // OJO: aquí NO tocamos asientos_ocupados ni proveedor
             }
+
+            $pdo->commit();
+
+            $success = 'Datos del autobús guardados correctamente.';
+
+            // Recargar la config en memoria para cambiar de paso
+            $configBus = [
+                'idruta'             => $idruta,
+                'nombre_motorista'   => $nombreMotorista,
+                'telefono_motorista' => $telMotorista,
+                'capacidad_aprox'    => $capacidad,
+                'placa'              => $placa,
+            ];
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            $errors[] = 'Error al guardar la información del autobús.';
+            // si quieres debugear:
+            // $errors[] = $e->getMessage();
         }
     }
+}
+
 
     // ---------- FORM 2: Primer reporte “Salida hacia el estadio” ----------
     if ($formStep === 'primer_reporte' && $idAccionSalida) {
