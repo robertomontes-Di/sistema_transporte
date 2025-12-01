@@ -806,13 +806,61 @@ const ACCIONES_REQUIEREN_PERSONAS = <?= $accionesRequierenPersonasJs ?> || [];
     });
   }
 
-  // --- Aquí DEJAS tal cual el código que ya tienes de "Enviar ubicación" ---
-  const btnUbicacion = document.getElementById('btnUbicacion');
-  if (btnUbicacion) {
-    btnUbicacion.addEventListener('click', function() {
-      // ... tu código existente de geolocalización y fetch ...
-    });
-  }
+// Botón "Enviar ubicación"
+const btnUbicacion = document.getElementById('btnUbicacion');
+if (btnUbicacion) {
+  btnUbicacion.addEventListener('click', function() {
+    if (!navigator.geolocation) {
+      alert('La geolocalización no es soportada en este dispositivo.');
+      return;
+    }
+
+    btnUbicacion.disabled = true;
+    btnUbicacion.textContent = 'Enviando ubicación...';
+
+    navigator.geolocation.getCurrentPosition(
+      function(pos) {
+        const lat    = pos.coords.latitude;
+        const lng    = pos.coords.longitude;
+        const idruta = <?= (int)$idruta ?>;
+
+        fetch('guardar_ubicacion.php', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+          },
+          body: 'lat=' + encodeURIComponent(lat) +
+                '&lng=' + encodeURIComponent(lng) +
+                '&idruta=' + encodeURIComponent(idruta)
+        })
+        .then(r => r.json())
+        .then(data => {
+          console.log('Respuesta guardar_ubicacion.php:', data);
+          if (data && data.success) {
+            alert('Ubicación enviada correctamente.');
+          } else {
+            const msg = (data && data.msg) ? data.msg : 'Error desconocido al guardar la ubicación.';
+            alert('Error al guardar la ubicación: ' + msg);
+          }
+        })
+        .catch((err) => {
+          console.error('Error fetch ubicación:', err);
+          alert('Error al enviar la ubicación.');
+        })
+        .finally(() => {
+          btnUbicacion.disabled = false;
+          btnUbicacion.textContent = 'Enviar ubicación';
+        });
+      },
+      function(err) {
+        alert('No se pudo obtener la ubicación: ' + err.message);
+        btnUbicacion.disabled = false;
+        btnUbicacion.textContent = 'Enviar ubicación';
+      }
+    );
+  });
+}
+
 })();
 </script>
 <script>

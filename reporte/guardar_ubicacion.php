@@ -8,20 +8,37 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../includes/db.php'; // conexión PDO
 
+// Aseguramos que sea POST
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    echo json_encode([
+        'success' => false,
+        'msg'     => 'Método no permitido'
+    ]);
+    exit;
+}
+
 try {
     // Leer parámetros
-    $lat    = isset($_POST['lat'])    ? trim($_POST['lat'])    : null;
-    $lng    = isset($_POST['lng'])    ? trim($_POST['lng'])    : null;
-    $idruta = isset($_POST['idruta']) ? (int)$_POST['idruta']  : 0;
+    $latRaw    = isset($_POST['lat'])    ? trim($_POST['lat'])    : null;
+    $lngRaw    = isset($_POST['lng'])    ? trim($_POST['lng'])    : null;
+    $idruta    = isset($_POST['idruta']) ? (int)$_POST['idruta']  : 0;
 
     // Validaciones básicas
     if ($idruta <= 0) {
-        throw new Exception("Ruta inválida");
+        throw new Exception("Ruta inválida (idruta = {$idruta})");
     }
 
-    // Ojo: usamos comparación estricta contra null, no `!$lat`
-    if ($lat === null || $lat === '' || $lng === null || $lng === '') {
-        throw new Exception("Faltan coordenadas");
+    if ($latRaw === null || $latRaw === '' || $lngRaw === null || $lngRaw === '') {
+        throw new Exception("Faltan coordenadas (lat/lng vacíos)");
+    }
+
+    // Convertir a float para evitar problemas de formato
+    $lat = (float)$latRaw;
+    $lng = (float)$lngRaw;
+
+    // Validar rango geográfico básico
+    if ($lat < -90 || $lat > 90 || $lng < -180 || $lng > 180) {
+        throw new Exception("Coordenadas fuera de rango: lat={$lat}, lng={$lng}");
     }
 
     // Insert
@@ -38,10 +55,14 @@ try {
         'success' => true,
         'msg'     => 'Ubicación guardada correctamente',
     ]);
+} catch (PDOException $e) {
+    echo json_encode([
+        'success' => false,
+        'msg'     => 'Error DB: '.$e->getMessage(),
+    ]);
 } catch (Throwable $e) {
     echo json_encode([
         'success' => false,
-        'msg'     => $e->getMessage(),
+        'msg'     => 'Error PHP: '.$e->getMessage(),
     ]);
 }
-?>
