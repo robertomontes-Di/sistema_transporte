@@ -6,30 +6,46 @@ require_once __DIR__ . '/../includes/db.php';
 // Detectar si es llamada API (JSON) o carga normal HTML
 $action = $_GET['action'] ?? null;
 
-    if ($action === 'routes') {
-        try {
-            // Filtros opcionales
-            $params = [];
-            $where  = [];
+if ($action === 'agentes') {
+  try {
+    $stmt = $pdo->query("SELECT idagente, nombre FROM agente ORDER BY nombre");
+    echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
+    exit;
+  } catch (Exception $e) {
+    http_response_code(500);
+    echo json_encode(['error' => $e->getMessage()]);
+    exit;
+  }
+}
 
-            if (!empty($_GET['idruta'])) {
-                $where[] = 'r.idruta = :idruta';
-                $params[':idruta'] = (int)$_GET['idruta'];
-            }
+if ($action === 'routes') {
+  try {
+    // Filtros opcionales
+    $params = [];
+    $where  = [];
 
-            // estado: sin_problema, inconveniente, critico
-            if (!empty($_GET['estado'])) {
-                $estadoFilter = $_GET['estado'];
-            } else {
-                $estadoFilter = null;
-            }
+    if (!empty($_GET['idruta'])) {
+      $where[] = 'r.idruta = :idruta';
+      $params[':idruta'] = (int)$_GET['idruta'];
+    }
+    if (!empty($_GET['agente'])) {
+      $where[] = 'r.idagente = :agente';
+      $params[':agente'] = (int)$_GET['agente'];
+    }
 
-            // Consulta rutas con:
-            // - info de ruta/bus/encargado
-            // - último reporte (para estado e info)
-            // - suma acumulada de personas (solo reportes no críticos)
-            // - estimado total de personas (suma de paradas)
-            $sql = "
+    // estado: sin_problema, inconveniente, critico
+    if (!empty($_GET['estado'])) {
+      $estadoFilter = $_GET['estado'];
+    } else {
+      $estadoFilter = null;
+    }
+
+    // Consulta rutas con:
+    // - info de ruta/bus/encargado
+    // - último reporte (para estado e info)
+    // - suma acumulada de personas (solo reportes no críticos)
+    // - estimado total de personas (suma de paradas)
+    $sql = "
                 SELECT
                     r.idruta,
                     r.nombre        AS ruta_nombre,
@@ -52,9 +68,11 @@ $action = $_GET['action'] ?? null;
                     est.estimado_total,
 
                     -- Personas acumuladas (solo reportes no críticos)
-                    stats.total_personas_acum
+                    stats.total_personas_acum,
+                    ag.nombre AS agente_nombre
                 FROM ruta r
                 LEFT JOIN bus b ON b.idbus = r.idbus
+                left join agente ag on ag.idagente=r.idagente
                 LEFT JOIN encargado_ruta er ON er.idencargado_ruta = r.idencargado_ruta
 
                 -- Último registro de reporte por ruta
@@ -87,98 +105,108 @@ $action = $_GET['action'] ?? null;
                 ) stats ON stats.idruta = r.idruta
             ";
 
-            // Aplica filtros dinámicos ANTES del ORDER BY
-            if (!empty($where)) {
-                $sql .= ' WHERE ' . implode(' AND ', $where);
-            }
-
-            // Orden final
-            $sql .= ' ORDER BY r.idruta DESC';
-
-            $stmt = $pdo->prepare($sql);
-            foreach ($params as $k => $v) {
-                $stmt->bindValue($k, $v);
-            }
-            $stmt->execute();
-            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            $out = [];
-            foreach ($rows as $r) {
-                // Clasificar estado según el último reporte
-                $status = 'sin_problema';
-                if (!empty($r['idaccion'])) {
-                    $tipo = strtolower($r['tipo_accion'] ?? '');
-                    if ($tipo === 'critico') {
-                        $status = 'critico';
-                    } elseif ($tipo === 'inconveniente') {
-                        $status = 'inconveniente';
-                    } else {
-                        $status = 'sin_problema';
-                    }
-                }
-
-                // Personas del último reporte
-                $personas_ultimo = isset($r['total_personas_ultimo'])
-                    ? (int)$r['total_personas_ultimo']
-                    : 0;
-
-                // Personas acumuladas en la ruta (si no hay acumulado, usamos el último como fallback)
-                $personas_acum = isset($r['total_personas_acum'])
-                    ? (int)$r['total_personas_acum']
-                    : $personas_ultimo;
-
-                $estimado_total = isset($r['estimado_total']) ? (int)$r['estimado_total'] : 0;
-                $bus_capacidad  = isset($r['bus_capacidad']) ? (int)$r['bus_capacidad'] : 0;
-
-                // % cumplimiento sobre estimado de paradas (usamos personas acumuladas)
-                $pct_cumpl = null;
-                if ($estimado_total > 0) {
-                    $pct_cumpl = round(($personas_acum / $estimado_total) * 100, 1);
-                }
-
-                // % uso sobre capacidad del bus (también con acumulado)
-                $pct_uso = null;
-                if ($bus_capacidad > 0) {
-                    $pct_uso = round(($personas_acum / $bus_capacidad) * 100, 1);
-                }
-
-                $row = [
-                    'idruta'          => (int)$r['idruta'],
-                    'ruta_nombre'     => $r['ruta_nombre'],
-                    'destino'         => $r['destino'],
-                    'flag_arrival'    => (int)$r['flag_arrival'],
-                    'placa'           => $r['placa'],
-                    'encargado'       => $r['encargado_nombre'],
-                    // Personas del último reporte (lo que muestra la tarjeta)
-                    'total_personas'  => $personas_ultimo,
-                    // Personas acumuladas en la ruta (por si luego quieres usarlo en front)
-                    'total_personas_acumuladas' => $personas_acum,
-                    'estimado_total'  => $estimado_total,
-                    'bus_capacidad'   => $bus_capacidad,
-                    'pct_cumpl'       => $pct_cumpl,
-                    'pct_uso'         => $pct_uso,
-                    'fecha_reporte'   => $r['fecha_reporte'],
-                    'status'          => $status,
-                    'accion_nombre'   => $r['accion_nombre'],
-                ];
-
-                // Filtro por estado (si se solicitó)
-                if ($estadoFilter && $estadoFilter !== $status) {
-                    continue;
-                }
-
-                $out[] = $row;
-            }
-
-            echo json_encode($out);
-            exit;
-
-        } catch (Exception $e) {
-            http_response_code(500);
-            echo json_encode(['error' => 'Error en routes: ' . $e->getMessage()]);
-            exit;
-        }
+    // Aplica filtros dinámicos ANTES del ORDER BY
+    if (!empty($where)) {
+      $sql .= ' WHERE ' . implode(' AND ', $where);
     }
+
+    // Orden final
+    $sql .= ' ORDER BY r.idruta DESC';
+
+    $stmt = $pdo->prepare($sql);
+    foreach ($params as $k => $v) {
+      $stmt->bindValue($k, $v);
+    }
+    $stmt->execute();
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $out = [];
+    foreach ($rows as $r) {
+      // Clasificar estado según el último reporte
+      // 1) Si no hay fecha_reporte -> sin_reporte
+      // 2) Si hay reporte y idaccion existe -> mapear tipo_accion
+      // 3) Si hay reporte pero no hay accion -> sin_problema
+      if (empty($r['fecha_reporte'])) {
+        $status = 'sin_reporte';
+      } else {
+        // hay al menos un reporte
+        $tipo_raw = $r['tipo_accion'] ?? null;
+        $tipo = strtolower($tipo_raw ?? '');
+
+        if ($tipo === 'critico') {
+          $status = 'critico';
+        } elseif ($tipo === 'inconveniente') {
+          $status = 'inconveniente';
+        } else {
+          // reporte existe pero no hay acción o es otro valor -> sin_problema
+          $status = 'sin_problema';
+        }
+      }
+
+
+
+
+      // Personas del último reporte
+      $personas_ultimo = isset($r['total_personas_ultimo'])
+        ? (int)$r['total_personas_ultimo']
+        : 0;
+
+      // Personas acumuladas en la ruta (si no hay acumulado, usamos el último como fallback)
+      $personas_acum = isset($r['total_personas_acum'])
+        ? (int)$r['total_personas_acum']
+        : $personas_ultimo;
+
+      $estimado_total = isset($r['estimado_total']) ? (int)$r['estimado_total'] : 0;
+      $bus_capacidad  = isset($r['bus_capacidad']) ? (int)$r['bus_capacidad'] : 0;
+
+      // % cumplimiento sobre estimado de paradas (usamos personas acumuladas)
+      $pct_cumpl = null;
+      if ($estimado_total > 0) {
+        $pct_cumpl = round(($personas_acum / $estimado_total) * 100, 1);
+      }
+
+      // % uso sobre capacidad del bus (también con acumulado)
+      $pct_uso = null;
+      if ($bus_capacidad > 0) {
+        $pct_uso = round(($personas_acum / $bus_capacidad) * 100, 1);
+      }
+
+      $row = [
+        'idruta'          => (int)$r['idruta'],
+        'ruta_nombre'     => $r['ruta_nombre'],
+        'destino'         => $r['destino'],
+        'flag_arrival'    => (int)$r['flag_arrival'],
+        'placa'           => $r['placa'],
+        'encargado'       => $r['encargado_nombre'],
+        // Personas del último reporte (lo que muestra la tarjeta)
+        'total_personas'  => $personas_ultimo,
+        // Personas acumuladas en la ruta (por si luego quieres usarlo en front)
+        'total_personas_acumuladas' => $personas_acum,
+        'estimado_total'  => $estimado_total,
+        'bus_capacidad'   => $bus_capacidad,
+        'pct_cumpl'       => $pct_cumpl,
+        'pct_uso'         => $pct_uso,
+        'fecha_reporte'   => $r['fecha_reporte'],
+        'status'          => $status,
+        'accion_nombre'   => $r['accion_nombre'],
+      ];
+
+      // Filtro por estado (si se solicitó)
+      if ($estadoFilter && $estadoFilter !== $status) {
+        continue;
+      }
+
+      $out[] = $row;
+    }
+
+    echo json_encode($out);
+    exit;
+  } catch (Exception $e) {
+    http_response_code(500);
+    echo json_encode(['error' => 'Error en routes: ' . $e->getMessage()]);
+    exit;
+  }
+}
 
 
 // ---------------------------------------------------------------------
@@ -206,10 +234,18 @@ require __DIR__ . '/../templates/header.php';
             <option value="sin_problema">Sin problema</option>
             <option value="inconveniente">Inconveniente</option>
             <option value="critico">Crítico</option>
+            <option value="sin_reporte">Sin Reporte</option>
           </select>
-          <button id="btnRefresh" class="btn btn-sm btn-primary">
+
+          <label class="mr-2">Agente:</label>
+          <select id="filtroAgente" class="form-control form-control-sm mr-2">
+            <option value="">Todos</option>
+          </select>
+
+          <button id="btnRefresh" class="btn btn-sm btn-primary" style="display: none;">
             <i class="fas fa-sync-alt mr-1"></i> Actualizar
           </button>
+
         </div>
       </div>
     </div>
@@ -222,7 +258,7 @@ require __DIR__ . '/../templates/header.php';
 
     <!-- Resumen de KPIs -->
     <div class="row">
-      <div class="col-md-3">
+      <div class="col-md-2">
         <div class="small-box bg-white">
           <div class="inner">
             <p class="text-muted mb-1">Total rutas</p>
@@ -233,7 +269,7 @@ require __DIR__ . '/../templates/header.php';
           </div>
         </div>
       </div>
-      <div class="col-md-3">
+      <div class="col-md-2">
         <div class="small-box bg-white">
           <div class="inner">
             <p class="text-muted mb-1">Rutas activas</p>
@@ -241,6 +277,17 @@ require __DIR__ . '/../templates/header.php';
           </div>
           <div class="icon">
             <i class="fas fa-bus-alt"></i>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-2">
+        <div class="small-box bg-white">
+          <div class="inner">
+            <p class="text-muted mb-1">Sin Reporte</p>
+            <h3 class="text-success" id="kpi_sin_reporte">0</h3>
+          </div>
+          <div class="icon">
+            <i class="fas fa-check-circle"></i>
           </div>
         </div>
       </div>
@@ -313,163 +360,183 @@ require __DIR__ . '/../templates/header.php';
 
 <!-- Scripts específicos -->
 <script>
-const apiBase = location.pathname + '?action=';
+  const apiBase = location.pathname + '?action=';
 
-function fmtNumber(n){
-  return (n || 0).toLocaleString();
-}
-
-function fmtPercent(p){
-  if (p === null || p === undefined) return '-';
-  return p.toFixed ? p.toFixed(1) + '%' : p + '%';
-}
-
-async function fetchRoutes(){
-  const estado = document.getElementById('filtroEstado').value || '';
-  let url = apiBase + 'routes';
-  if (estado) {
-    url += '&estado=' + encodeURIComponent(estado);
-  }
-  const res = await fetch(url);
-  if (!res.ok) throw new Error('Error al cargar rutas');
-  return res.json();
-}
-
-let chartCumplimiento = null;
-let chartUsoBus       = null;
-
-function buildCharts(routes){
-  // Filtrar solo rutas con pct_cumpl / pct_uso no nulo
-  const rutasConCumpl = routes.filter(r => r.pct_cumpl !== null);
-  const rutasConUso   = routes.filter(r => r.pct_uso !== null);
-
-  const labelsCumpl = rutasConCumpl.map(r => r.ruta_nombre);
-  const dataCumpl   = rutasConCumpl.map(r => r.pct_cumpl);
-
-  const labelsUso = rutasConUso.map(r => r.ruta_nombre);
-  const dataUso   = rutasConUso.map(r => r.pct_uso);
-
-  // --- Gráfica de cumplimiento ---
-  if (!chartCumplimiento) {
-    chartCumplimiento = echarts.init(document.getElementById('chartCumplimiento'));
-  }
-  chartCumplimiento.setOption({
-    tooltip: {
-      trigger: 'axis',
-      formatter: params => {
-        const p = params[0];
-        return `${p.name}<br/>Cumplimiento: ${p.value}%`;
-      }
-    },
-    grid: { left: 120, right: 20, top: 20, bottom: 30 },
-    xAxis: {
-      type: 'value',
-      min: 0,
-      max: 120
-    },
-    yAxis: {
-      type: 'category',
-      data: labelsCumpl
-    },
-    series: [{
-      type: 'bar',
-      data: dataCumpl,
-      label: {
-        show: true,
-        position: 'right',
-        formatter: '{c}%'
-      }
-    }]
-  });
-
-  // --- Gráfica de uso de bus ---
-  if (!chartUsoBus) {
-    chartUsoBus = echarts.init(document.getElementById('chartUsoBus'));
-  }
-  chartUsoBus.setOption({
-    tooltip: {
-      trigger: 'axis',
-      formatter: params => {
-        const p = params[0];
-        return `${p.name}<br/>Uso bus: ${p.value}%`;
-      }
-    },
-    grid: { left: 120, right: 20, top: 20, bottom: 30 },
-    xAxis: {
-      type: 'value',
-      min: 0,
-      max: 120
-    },
-    yAxis: {
-      type: 'category',
-      data: labelsUso
-    },
-    series: [{
-      type: 'bar',
-      data: dataUso,
-      label: {
-        show: true,
-        position: 'right',
-        formatter: '{c}%'
-      }
-    }]
-  });
-}
-
-function buildKpis(routes){
-  const total = routes.length;
-  let activas = 0;
-  let sinProb = 0;
-  let incon   = 0;
-  let critico   = 0;
-
-  routes.forEach(r => {
-    if (r.flag_arrival === 0) activas++;
-    if (r.status === 'sin_problema') sinProb++;
-    else if (r.status === 'inconveniente') incon++;
-    else if (r.status === 'critico') critico++;
-  });
-
-  document.getElementById('kpi_total_rutas').textContent      = fmtNumber(total);
-  document.getElementById('kpi_rutas_activas').textContent    = fmtNumber(activas);
-  document.getElementById('kpi_sin_problema').textContent     = fmtNumber(sinProb);
-  document.getElementById('kpi_inconveniente').textContent    = fmtNumber(incon);
-  document.getElementById('kpi_critico').textContent            = fmtNumber(critico);
-}
-
-function statusBadge(status){
-  let cls = 'badge-secondary';
-  let txt = 'Sin datos';
-  if (status === 'sin_problema') {
-    cls = 'badge-success';
-    txt = 'Sin problema';
-  } else if (status === 'inconveniente') {
-    cls = 'badge-warning';
-    txt = 'Inconveniente';
-  } else if (status === 'critico') {
-    cls = 'badge-danger';
-    txt = 'Crítico';
-  }
-  return `<span class="badge ${cls}">${txt}</span>`;
-}
-
-function buildCards(routes){
-  const container = document.getElementById('cardsContainer');
-  container.innerHTML = '';
-
-  if (!routes.length) {
-    container.innerHTML = '<div class="col-12"><em>No hay rutas que coincidan con el filtro.</em></div>';
-    return;
+  function fmtNumber(n) {
+    return (n || 0).toLocaleString();
   }
 
-  routes.forEach(r => {
-    const pctCumpl = r.pct_cumpl !== null ? r.pct_cumpl : 0;
-    const pctUso   = r.pct_uso !== null ? r.pct_uso : 0;
+  function fmtPercent(p) {
+    if (p === null || p === undefined) return '-';
+    return p.toFixed ? p.toFixed(1) + '%' : p + '%';
+  }
 
-    const card = document.createElement('div');
-    card.className = 'col-md-6 col-lg-4';
+  async function fetchRoutes() {
+    const estado = document.getElementById('filtroEstado').value || '';
+    const agente = document.getElementById('filtroAgente').value || '';
 
-    card.innerHTML = `
+    let url = apiBase + 'routes';
+
+    if (estado) url += '&estado=' + encodeURIComponent(estado);
+    if (agente) url += '&agente=' + encodeURIComponent(agente);
+
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Error al cargar rutas');
+    return res.json();
+  }
+
+
+  let chartCumplimiento = null;
+  let chartUsoBus = null;
+
+  function buildCharts(routes) {
+    // Filtrar solo rutas con pct_cumpl / pct_uso no nulo
+    const rutasConCumpl = routes.filter(r => r.pct_cumpl !== null);
+    const rutasConUso = routes.filter(r => r.pct_uso !== null);
+
+    const labelsCumpl = rutasConCumpl.map(r => r.ruta_nombre);
+    const dataCumpl = rutasConCumpl.map(r => r.pct_cumpl);
+
+    const labelsUso = rutasConUso.map(r => r.ruta_nombre);
+    const dataUso = rutasConUso.map(r => r.pct_uso);
+
+    // --- Gráfica de cumplimiento ---
+    if (!chartCumplimiento) {
+      chartCumplimiento = echarts.init(document.getElementById('chartCumplimiento'));
+    }
+    chartCumplimiento.setOption({
+      tooltip: {
+        trigger: 'axis',
+        formatter: params => {
+          const p = params[0];
+          return `${p.name}<br/>Cumplimiento: ${p.value}%`;
+        }
+      },
+      grid: {
+        left: 120,
+        right: 20,
+        top: 20,
+        bottom: 30
+      },
+      xAxis: {
+        type: 'value',
+        min: 0,
+        max: 120
+      },
+      yAxis: {
+        type: 'category',
+        data: labelsCumpl
+      },
+      series: [{
+        type: 'bar',
+        data: dataCumpl,
+        label: {
+          show: true,
+          position: 'right',
+          formatter: '{c}%'
+        }
+      }]
+    });
+
+    // --- Gráfica de uso de bus ---
+    if (!chartUsoBus) {
+      chartUsoBus = echarts.init(document.getElementById('chartUsoBus'));
+    }
+    chartUsoBus.setOption({
+      tooltip: {
+        trigger: 'axis',
+        formatter: params => {
+          const p = params[0];
+          return `${p.name}<br/>Uso bus: ${p.value}%`;
+        }
+      },
+      grid: {
+        left: 120,
+        right: 20,
+        top: 20,
+        bottom: 30
+      },
+      xAxis: {
+        type: 'value',
+        min: 0,
+        max: 120
+      },
+      yAxis: {
+        type: 'category',
+        data: labelsUso
+      },
+      series: [{
+        type: 'bar',
+        data: dataUso,
+        label: {
+          show: true,
+          position: 'right',
+          formatter: '{c}%'
+        }
+      }]
+    });
+  }
+
+  function buildKpis(routes) {
+    const total = routes.length;
+    let activas = 0;
+    let sinProb = 0;
+    let incon = 0;
+    let critico = 0;
+    let sinReporte = 0;
+
+    routes.forEach(r => {
+      if (r.flag_arrival === 0) activas++;
+      if (r.status === 'sin_problema') sinProb++;
+      else if (r.status === 'inconveniente') incon++;
+      else if (r.status === 'critico') critico++;
+      else if (r.status === 'sin_reporte') sinReporte++;
+    });
+
+    document.getElementById('kpi_total_rutas').textContent = fmtNumber(total);
+    document.getElementById('kpi_rutas_activas').textContent = fmtNumber(activas);
+    document.getElementById('kpi_sin_problema').textContent = fmtNumber(sinProb);
+    document.getElementById('kpi_inconveniente').textContent = fmtNumber(incon);
+    document.getElementById('kpi_critico').textContent = fmtNumber(critico);
+    document.getElementById('kpi_sin_reporte').textContent = fmtNumber(sinReporte);
+  }
+
+  function statusBadge(status) {
+    let cls = 'badge-secondary';
+    let txt = 'Sin datos';
+    if (status === 'sin_problema') {
+      cls = 'badge-success';
+      txt = 'Sin problema';
+    } else if (status === 'inconveniente') {
+      cls = 'badge-warning';
+      txt = 'Inconveniente';
+    } else if (status === 'critico') {
+      cls = 'badge-danger';
+      txt = 'Crítico';
+    } else if (status === 'sin_reporte') {
+      cls = 'badge-info';
+      txt = 'Sin reporte';
+    }
+    return `<span class="badge ${cls}">${txt}</span>`;
+  }
+
+  function buildCards(routes) {
+    const container = document.getElementById('cardsContainer');
+    container.innerHTML = '';
+
+    if (!routes.length) {
+      container.innerHTML = '<div class="col-12"><em>No hay rutas que coincidan con el filtro.</em></div>';
+      return;
+    }
+
+    routes.forEach(r => {
+      const pctCumpl = r.pct_cumpl !== null ? r.pct_cumpl : 0;
+      const pctUso = r.pct_uso !== null ? r.pct_uso : 0;
+
+      const card = document.createElement('div');
+      card.className = 'col-md-6 col-lg-4';
+
+      card.innerHTML = `
       <div class="card h-100">
         <div class="card-header">
           <h3 class="card-title" style="font-size:1rem;">
@@ -521,31 +588,54 @@ function buildCards(routes){
       </div>
     `;
 
-    container.appendChild(card);
-  });
-}
-
-async function renderRoutes(){
-  try {
-    const routes = await fetchRoutes();
-    buildKpis(routes);
-    buildCharts(routes);
-    buildCards(routes);
-  } catch (err) {
-    console.error(err);
+      container.appendChild(card);
+    });
   }
-}
+  async function cargarAgentes() {
+    try {
+      const res = await fetch(apiBase + 'agentes');
+      const agentes = await res.json();
+      const sel = document.getElementById('filtroAgente');
 
-// Redimensionar ECharts al cambiar tamaño ventana
-window.addEventListener('resize', () => {
-  if (chartCumplimiento) chartCumplimiento.resize();
-  if (chartUsoBus) chartUsoBus.resize();
-});
+      agentes.forEach(a => {
+        const opt = document.createElement('option');
+        opt.value = a.idagente;
+        opt.textContent = a.nombre;
+        sel.appendChild(opt);
+      });
+    } catch (e) {
+      console.error("Error cargando agentes", e);
+    }
+  }
 
-document.getElementById('btnRefresh').addEventListener('click', renderRoutes);
-document.getElementById('filtroEstado').addEventListener('change', renderRoutes);
+  document.getElementById('filtroAgente').addEventListener('change', renderRoutes);
 
-document.addEventListener('DOMContentLoaded', renderRoutes);
+  document.addEventListener('DOMContentLoaded', () => {
+    cargarAgentes();
+    renderRoutes();
+  });
+
+  async function renderRoutes() {
+    try {
+      const routes = await fetchRoutes();
+      buildKpis(routes);
+      buildCharts(routes);
+      buildCards(routes);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  // Redimensionar ECharts al cambiar tamaño ventana
+  window.addEventListener('resize', () => {
+    if (chartCumplimiento) chartCumplimiento.resize();
+    if (chartUsoBus) chartUsoBus.resize();
+  });
+
+  document.getElementById('btnRefresh').addEventListener('click', renderRoutes);
+  document.getElementById('filtroEstado').addEventListener('change', renderRoutes);
+
+ 
 </script>
 
 <?php

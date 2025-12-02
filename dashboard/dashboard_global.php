@@ -203,7 +203,7 @@ if ($action === 'map') {
             $where
             ORDER BY r.idruta, p.orden
         ";
-echo "\n<!-- SQL: $sql -->\n"; // DEBUG
+
         $stmt = $pdo->prepare($sql);
 
         if ($departamento) $stmt->bindValue(':departamento', $departamento);      
@@ -464,9 +464,10 @@ require __DIR__ . '/../templates/header.php';
       <label>Estado (acción)</label>
       <select id="f_tipo_accion" class="form-control">
         <option value="">Todos</option>
-        <option value="sin_problema">Sin problema</option>
+        <option value="normal">Sin problema</option>
         <option value="inconveniente">Inconveniente</option>
         <option value="critico">Crítico</option>
+         <option value="">Sin Reporte</option>
       </select>
     </div>
 
