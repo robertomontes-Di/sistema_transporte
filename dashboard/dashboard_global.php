@@ -5,52 +5,17 @@ require_once __DIR__ . '/../includes/db.php';
 
 // Detectar si es una llamada API (JSON) o carga normal de página
 $action = $_GET['action'] ?? null;
-
-if ($action) {
-    // MODO API JSON
-    header('Content-Type: application/json; charset=utf-8');
-if ($action === 'filters') {
-    header('Content-Type: application/json; charset=utf-8');
-    try {
-        // Departamentos
-        $departamentos = $pdo->query("
-            SELECT DISTINCT departamento 
-            FROM paradas 
-            WHERE departamento IS NOT NULL AND departamento <> ''
-            ORDER BY departamento
-        ")->fetchAll(PDO::FETCH_COLUMN);
-
-       
-
-        // Rutas
-        $rutas = $pdo->query("
-            SELECT idruta, nombre 
-            FROM ruta 
-            ORDER BY idruta
-        ")->fetchAll(PDO::FETCH_ASSOC);
-
-        echo json_encode([
-            'success' => true,
-            'departamentos' => $departamentos,           
-            'rutas' => $rutas
-        ]);
-        exit();
-
-    } catch (Throwable $e) {
-        http_response_code(500);
-        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
-        exit();
-    }
-}
-
+// -----------------------------------------------------------------
+// ENDPOINTS AJAX
+// -----------------------------------------------------------------
 if ($action === 'stats') {
     try {
         // --------------------------------------------------------
-        // 1) PERSONAS EN ESTADIO (en realidad: personas reportadas
-        //    en el último reporte de cada ruta ACTIVA)
+        // 1) PERSONAS EN RUTA (último reporte de cada ruta ACTIVA
+        //    que todavía NO ha llegado al estadio)
         // --------------------------------------------------------
-        $sqlPersonas = "
-            SELECT COALESCE(SUM(rp.total_personas),0) AS personas_en_estadio
+        $sqlPersonasRuta = "
+            SELECT COALESCE(SUM(rp.total_personas),0) AS personas_en_ruta
             FROM (
                 SELECT r1.idruta, r1.total_personas
                 FROM reporte r1
@@ -63,17 +28,32 @@ if ($action === 'stats') {
             ) rp
             INNER JOIN ruta ru ON ru.idruta = rp.idruta
             WHERE ru.activa = 1
+              AND (ru.flag_arrival IS NULL OR ru.flag_arrival = 0)
         ";
-        $personas_en_estadio = (int)$pdo->query($sqlPersonas)->fetchColumn();
+        $personas_en_ruta = (int)$pdo->query($sqlPersonasRuta)->fetchColumn();
+
+        // --------------------------------------------------------
+        // 1b) PERSONAS EN ESTADIO (último reporte de cada ruta que
+        //     YA marcó flag_arrival = 1)
+        // --------------------------------------------------------
+        $sqlPersonasEstadio = "
+              SELECT COALESCE(SUM(r.total_personas),0) AS personas_en_estadio
+    FROM reporte r
+    INNER JOIN ruta ru ON ru.idruta = r.idruta
+    WHERE ru.flag_arrival = 1
+        ";
+        $personas_en_estadio = (int)$pdo->query($sqlPersonasEstadio)->fetchColumn();
 
         // --------------------------------------------------------
         // 2) TOTAL ESTIMADO (paradas) SOLO DE RUTAS ACTIVAS
+        //    QUE TODAVÍA NO HAN LLEGADO AL ESTADIO
         // --------------------------------------------------------
         $sqlEstimated = "
             SELECT COALESCE(SUM(p.estimado_personas),0) AS total_estimated
             FROM paradas p
             INNER JOIN ruta r ON r.idruta = p.idruta
             WHERE r.activa = 1
+              AND (r.flag_arrival IS NULL OR r.flag_arrival = 0)
         ";
         $total_estimated = (int)$pdo->query($sqlEstimated)->fetchColumn();
 
@@ -131,8 +111,11 @@ if ($action === 'stats') {
         // RESPUESTA JSON PARA EL FRONT
         // --------------------------------------------------------
         echo json_encode([
+            'personas_en_ruta'    => $personas_en_ruta,
             'personas_en_estadio' => $personas_en_estadio,
             'total_estimated'     => $total_estimated,
+            'routes_active'       => $routes_active,
+            'routes_total'        => $routes_total,
             'routes_en_estadio'   => $routes_en_estadio,
             'routes_en_transito'  => $routes_en_transito,
             'sin_problema'        => (int)$status['sin_problema'],
@@ -147,7 +130,6 @@ if ($action === 'stats') {
         exit;
     }
 }
-
 
        // MAP
     // -----------------------------------------------------------------
@@ -267,45 +249,31 @@ if ($action === 'map') {
 }
 
 
-    // -----------------------------------------------------------------
-    // RECENT REPORTS
-    // -----------------------------------------------------------------
-    if ($action === 'recent_reports') {
-        $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 50;
-        try {
-            $sql = "
-                SELECT rep.idreporte, rep.idruta, r.nombre AS ruta_nombre,
-                       b.placa, er.nombre AS encargado_nombre,
-                       ag.nombre AS agente_nombre, rep.total_personas,
-                       rep.total_becarios, rep.total_menores12,
-                       rep.comentario, rep.fecha_reporte,
-                       p.punto_abordaje, p.orden, a.nombre AS accion_nombre
-                FROM reporte rep
-                LEFT JOIN ruta r ON rep.idruta = r.idruta
-                LEFT JOIN bus b ON r.idbus = b.idbus
-                LEFT JOIN encargado_ruta er ON r.idencargado_ruta = er.idencargado_ruta
-                LEFT JOIN agente ag ON rep.idagente = ag.idagente
-                LEFT JOIN paradas p ON rep.idparada = p.idparada
-                LEFT JOIN acciones a ON rep.idaccion = a.idaccion
-                ORDER BY rep.fecha_reporte DESC
-                LIMIT :lim
-            ";
-            $stmt = $pdo->prepare($sql);
-            $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
-            $stmt->execute();
-            echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
-            exit;
-        } catch (Exception $e) {
-            http_response_code(500);
-            echo json_encode(['error' => 'Error en recent_reports: ' . $e->getMessage()]);
-            exit;
-        }
-    }
+// -----------------------------------------------------------------
+// LISTADO DE REPORTES RECIENTES
+// -----------------------------------------------------------------
+if ($action === 'recent_reports') {
+    try {
+        $sql = "
+            SELECT r.idreporte, rt.nombre AS ruta_nombre, b.placa, r.total_personas,
+                   r.fecha_reporte, a.nombre AS accion_nombre, a.tipo_accion
+            FROM reporte r
+            INNER JOIN ruta rt ON rt.idruta = r.idruta
+            INNER JOIN bus b  ON b.idbus  = rt.idbus
+            LEFT JOIN acciones a ON a.idaccion = r.idaccion
+            ORDER BY r.fecha_reporte DESC
+            LIMIT 20
+        ";
+        $rows = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
 
-    // Si action no coincide, 400
-    http_response_code(400);
-    echo json_encode(['error' => 'action inválida']);
-    exit;
+        echo json_encode(['ok' => true, 'data' => $rows]);
+        exit;
+
+    } catch (Throwable $e) {
+        http_response_code(500);
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+        exit;
+    }
 }
 
 // ---------------------------------------------------------------------
@@ -345,7 +313,7 @@ require __DIR__ . '/../templates/header.php';
       <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
         <div class="kpi-tile kpi-teal">
           <div class="kpi-body">
-            <div class="kpi-label">Total personas (último reporte)</div>
+            <div class="kpi-label">Total personas reales en ruta(último reporte)</div>
             <div class="kpi-value" id="kpi_total_reported">0</div>
           </div>
           <div class="kpi-icon">
@@ -357,7 +325,7 @@ require __DIR__ . '/../templates/header.php';
       <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
         <div class="kpi-tile kpi-cyan">
           <div class="kpi-body">
-            <div class="kpi-label">Total estimado (paradas)</div>
+            <div class="kpi-label">Total estimado en ruta(paradas)</div>
             <div class="kpi-value" id="kpi_total_estimated">0</div>
           </div>
           <div class="kpi-icon">
@@ -593,7 +561,7 @@ async function renderKpisAndChart(){
       tooltip: { trigger: 'axis' },
       xAxis: {
         type: 'category',
-        data: ['En estadio', 'Estimadas']
+        data: ['En Ruta', 'Estimadas en ruta', 'En Estadio']
       },
       yAxis: {
         type: 'value',
@@ -602,8 +570,9 @@ async function renderKpisAndChart(){
       series: [{
         type: 'bar',
         data: [
-          stats.personas_en_estadio || 0,
-          stats.total_estimated || 0
+          stats.personas_en_ruta || 0,
+          stats.total_estimated || 0,
+          stats.personas_en_estadio || 0
         ],
         label: {
           show: true,
