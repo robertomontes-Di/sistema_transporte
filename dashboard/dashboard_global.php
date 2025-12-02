@@ -9,6 +9,39 @@ $action = $_GET['action'] ?? null;
 if ($action) {
     // MODO API JSON
     header('Content-Type: application/json; charset=utf-8');
+if ($action === 'filters') {
+    header('Content-Type: application/json; charset=utf-8');
+    try {
+        // Departamentos
+        $departamentos = $pdo->query("
+            SELECT DISTINCT departamento 
+            FROM paradas 
+            WHERE departamento IS NOT NULL AND departamento <> ''
+            ORDER BY departamento
+        ")->fetchAll(PDO::FETCH_COLUMN);
+
+       
+
+        // Rutas
+        $rutas = $pdo->query("
+            SELECT idruta, nombre 
+            FROM ruta 
+            ORDER BY idruta
+        ")->fetchAll(PDO::FETCH_ASSOC);
+
+        echo json_encode([
+            'success' => true,
+            'departamentos' => $departamentos,           
+            'rutas' => $rutas
+        ]);
+        exit();
+
+    } catch (Throwable $e) {
+        http_response_code(500);
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+        exit();
+    }
+}
 
 if ($action === 'stats') {
     try {
@@ -120,8 +153,22 @@ if ($action === 'stats') {
     // -----------------------------------------------------------------
 
 if ($action === 'map') {
-    try {
-        // Para cada ruta: último reporte (si existe) + TODAS sus paradas
+       try {
+
+        // ======== RECIBIR FILTROS ========
+        $departamento = $_GET['departamento'] ?? null;
+      
+        $tipo_accion  = $_GET['tipo_accion'] ?? null;
+        $idruta       = $_GET['idruta'] ?? null;
+
+        $where = " WHERE p.latitud IS NOT NULL AND p.longitud IS NOT NULL ";
+
+        if ($departamento) $where .= " AND r.idruta in( select distinct pp.idruta from paradas pp where pp.departamento = :departamento )";
+      
+        if ($tipo_accion)  $where .= " AND a.tipo_accion = :tipo_accion ";
+        if ($idruta)       $where .= " AND r.idruta = :idruta ";
+
+        // ======== QUERY ORIGINAL + WHERE DINÁMICO ========
         $sql = "
             SELECT
                 r.idruta,
@@ -138,10 +185,10 @@ if ($action === 'map') {
                 p.idparada,
                 p.latitud,
                 p.longitud,
-                p.orden
+                p.orden,
+                p.departamento
             FROM ruta r
             LEFT JOIN (
-                -- último reporte por ruta
                 SELECT r1.*
                 FROM reporte r1
                 INNER JOIN (
@@ -153,11 +200,18 @@ if ($action === 'map') {
             LEFT JOIN acciones a ON a.idaccion = rep.idaccion
             LEFT JOIN bus b ON b.idbus = r.idbus
             LEFT JOIN paradas p ON p.idruta = r.idruta
-            WHERE p.latitud IS NOT NULL
-              AND p.longitud IS NOT NULL
+            $where
             ORDER BY r.idruta, p.orden
         ";
-        $rows = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+echo "\n<!-- SQL: $sql -->\n"; // DEBUG
+        $stmt = $pdo->prepare($sql);
+
+        if ($departamento) $stmt->bindValue(':departamento', $departamento);      
+        if ($tipo_accion)  $stmt->bindValue(':tipo_accion', $tipo_accion);
+        if ($idruta)       $stmt->bindValue(':idruta', $idruta);
+
+        $stmt->execute();
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         // Agrupamos por ruta
         $routes = [];
@@ -396,6 +450,36 @@ require __DIR__ . '/../templates/header.php';
             <h3 class="card-title">Mapa de rutas (último punto conocido)</h3>
           </div>
           <div class="card-body">
+            <div class="mb-2">
+  <div class="row">
+
+    <div class="col-md-3">
+      <label>Departamento</label>
+      <select id="f_departamento" class="form-control">
+        <option value="">Todos</option>
+      </select>
+    </div>  
+
+    <div class="col-md-3">
+      <label>Estado (acción)</label>
+      <select id="f_tipo_accion" class="form-control">
+        <option value="">Todos</option>
+        <option value="sin_problema">Sin problema</option>
+        <option value="inconveniente">Inconveniente</option>
+        <option value="critico">Crítico</option>
+      </select>
+    </div>
+
+    <div class="col-md-3">
+      <label>Ruta</label>
+      <select id="f_idruta" class="form-control">
+        <option value="">Todas</option>
+      </select>
+    </div>
+
+  </div>
+</div>
+
             <div id="map" style="width:100%; height:420px; border-radius:8px;"></div>
           </div>
         </div>
@@ -455,10 +539,16 @@ async function fetchStats(){
   return res.json();
 }
 async function fetchMapData(){
-  const res = await fetch(apiBase + 'map');
-  if(!res.ok) throw new Error('Error fetching map');
+  const f = new URLSearchParams();
+
+  f.append("departamento", document.getElementById("f_departamento").value);
+  f.append("tipo_accion", document.getElementById("f_tipo_accion").value);
+  f.append("idruta", document.getElementById("f_idruta").value);
+
+  const res = await fetch(apiBase + 'map&' + f.toString());
   return res.json();
 }
+
 async function fetchRecentReports(limit=50){
   const res = await fetch(apiBase + 'recent_reports&limit=' + limit);
   if(!res.ok) throw new Error('Error fetching reports');
@@ -753,17 +843,45 @@ async function renderMap(){
     console.error('Error renderMap:', err);
   }
 }
+["f_departamento", "f_tipo_accion", "f_idruta"].forEach(id => {
+    document.getElementById(id).addEventListener("change", async () => {
+        await renderMap();
+    });
+});
+
+async function cargarFiltros() {
+    const res = await fetch(apiBase + 'filters');
+    const data = await res.json();
+
+    if (!data.success) return;
+
+    // --- Departamento ---
+    const selDep = document.getElementById("f_departamento");
+    selDep.innerHTML = '<option value="">Todos</option>';
+    data.departamentos.forEach(d => {
+        selDep.innerHTML += `<option value="${d}">${d}</option>`;
+    });
+
+    // --- Ruta ---
+    const selRuta = document.getElementById("f_idruta");
+    selRuta.innerHTML = '<option value="">Todas</option>';
+    data.rutas.forEach(r => {
+        selRuta.innerHTML += `<option value="${r.idruta}">Ruta ${r.idruta} - ${r.nombre}</option>`;
+    });
+}
 
 async function initDashboard(){
   await renderKpisAndChart();
   await renderRecentReports();
   await renderMap();
+  await cargarFiltros();
 
   setInterval(async () => {
-    await renderKpisAndChart();
-    await renderRecentReports();
-    await renderMap();
-  }, 60000);
+  await renderKpisAndChart();
+  await renderRecentReports();
+  await renderMap();
+}, 60000);
+
 }
 
 document.addEventListener('DOMContentLoaded', initDashboard);
