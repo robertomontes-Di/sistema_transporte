@@ -22,53 +22,44 @@ $idruta     = (int)$_SESSION['idruta'];
 $rutaNombre = $_SESSION['ruta_nombre'] ?? '';
 
 // ===============================
-// 1.1) Parada por defecto de la ruta
+// 2) Cargar info básica de la ruta
 // ===============================
-$idParadaDefault = 0; // valor seguro por defecto
-
 try {
     $stmt = $pdo->prepare("
-        SELECT idparada
-        FROM paradas
-        WHERE idruta = :idruta
-        ORDER BY orden ASC, idparada ASC
-        LIMIT 1
-    ");
-    $stmt->execute([':idruta' => $idruta]);
-    $tmp = $stmt->fetchColumn();
-    if ($tmp) {
-        $idParadaDefault = (int)$tmp;
-    }
-} catch (Throwable $e) {
-    // Si falla la consulta, nos quedamos con 0
-}
-
-// ===============================
-// 2) Info básica de la ruta (UI)
-// ===============================
-$rutaInfo = null;
-try {
-    $stmt = $pdo->prepare("
-        SELECT r.idruta, r.nombre, r.destino,
-               er.nombre AS encargado, er.telefono
+        SELECT r.idruta,
+               r.nombre AS ruta_nombre,
+               r.destino,
+               r.flag_arrival,
+               r.activa,
+               b.placa,
+               b.conductor,
+               b.telefono AS telefono_motorista,
+               b.capacidad_asientos,
+               e.nombre  AS encargado_nombre,
+               e.telefono AS telefono_encargado
         FROM ruta r
-        LEFT JOIN encargado_ruta er ON er.idencargado_ruta = r.idencargado_ruta
+        LEFT JOIN bus b
+               ON r.idbus = b.idbus
+        LEFT JOIN encargado_ruta e
+               ON r.idencargado_ruta = e.idencargado_ruta
         WHERE r.idruta = :idruta
         LIMIT 1
     ");
     $stmt->execute([':idruta' => $idruta]);
-    $rutaInfo = $stmt->fetch(PDO::FETCH_ASSOC);
+    $ruta = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$ruta) {
+        throw new RuntimeException('Ruta no encontrada');
+    }
 } catch (Throwable $e) {
-    $rutaInfo = null;
+    die('Error al cargar la ruta: ' . htmlspecialchars($e->getMessage()));
 }
 
 // ===============================
-// 3) Ver si el bus ya está configurado
+// 3) Configuración del bus para la ruta (nombre, tel, placa, etc.)
 // ===============================
-$configBus = null;
 try {
     $stmt = $pdo->prepare("
-        SELECT idruta, nombre_motorista, telefono_motorista, placa
+        SELECT *
         FROM ruta_config_bus
         WHERE idruta = :idruta
         LIMIT 1
@@ -80,14 +71,14 @@ try {
 }
 
 // ===============================
-// 4) Buscar idaccion de “Salida hacia el estadio”
+// 4) Buscar idaccion de “Salida del punto de inicio”
 // ===============================
 $idAccionSalida = null;
 try {
     $stmt = $pdo->prepare("
         SELECT idaccion
         FROM acciones
-        WHERE nombre = 'Salida hacia el estadio'
+        WHERE nombre = 'Salida del punto de inicio'
         LIMIT 1
     ");
     $stmt->execute();
@@ -100,39 +91,40 @@ try {
 // 5) Revisar si YA existe un primer reporte hoy
 // ===============================
 $tienePrimerReporte = false;
-if ($idAccionSalida) {
-    try {
+try {
+    if ($idAccionSalida) {
         $stmt = $pdo->prepare("
             SELECT COUNT(*) 
             FROM reporte 
             WHERE idruta = :idruta 
               AND idaccion = :idaccion
-              AND DATE(fecha_reporte) = CURRENT_DATE
+              AND DATE(fecha_reporte) = CURDATE()
         ");
         $stmt->execute([
             ':idruta'   => $idruta,
             ':idaccion' => $idAccionSalida
         ]);
-        $tienePrimerReporte = ((int)$stmt->fetchColumn() > 0);
-    } catch (Throwable $e) {
-        $tienePrimerReporte = false;
+        $tienePrimerReporte = $stmt->fetchColumn() > 0;
     }
+} catch (Throwable $e) {
+    $tienePrimerReporte = false;
 }
 
-// ===================================================
-// 6) Acciones: traer y agrupar por tipo_accion
-// ===================================================
+// ===============================
+// 6) Obtener catálogo de acciones
+// ===============================
 $acciones = [];
 try {
     $stmt = $pdo->query("
-        SELECT idaccion, nombre, tipo_accion
+        SELECT idaccion, nombre, tipo_accion, flag_arrival, orden
         FROM acciones
-        ORDER BY tipo_accion, nombre
+        ORDER BY orden ASC, nombre ASC
     ");
     $acciones = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Throwable $e) {
     $acciones = [];
 }
+
 
 // Agrupar por tipo_accion
 $accionesPorTipo = [];
@@ -144,7 +136,7 @@ foreach ($acciones as $a) {
     $accionesPorTipo[$tipo][] = $a;
 }
 
-// Etiquetas amigables
+// Etiquetas amigables (por si se usan en otra parte)
 function etiquetaTipoAccion(string $tipo): string {
     switch (strtolower($tipo)) {
         case 'ruta':       return 'Reporte de Ruta';
@@ -162,9 +154,8 @@ function etiquetaTipoAccion(string $tipo): string {
 // 7) Reglas de negocio: acciones que requieren personas
 // ===================================================
 $accionesRequierenPersonas = [
-    'salida hacia el estadio',
-    'salida de parada',
-    'salida hacia el mágico gonzález',   // 👈 nueva
+    'abordaje de personas',
+    'salida del punto de inicio',
 ];
 
 
@@ -188,648 +179,441 @@ $success = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $formStep = $_POST['form_step'] ?? '';
 
-    // ---------- FORM 1: Configuración del bus ----------
+    // ---------- FORM 1: Configurar datos del bus ----------
     if ($formStep === 'config_bus') {
-    $nombreMotorista = trim($_POST['nombre_motorista'] ?? '');
-    $telMotorista    = trim($_POST['telefono_motorista'] ?? '');
-    $capacidad       = (isset($_POST['capacidad_aprox']) && $_POST['capacidad_aprox'] !== '')
-                        ? (int)$_POST['capacidad_aprox'] : null;
-    $placa           = trim($_POST['placa'] ?? '');
+        $nombreMotorista = trim($_POST['nombre_motorista'] ?? '');
+        $telMotorista    = trim($_POST['telefono_motorista'] ?? '');
+        $capacidad       = (isset($_POST['capacidad_aprox']) && $_POST['capacidad_aprox'] !== '')
+                            ? (int)$_POST['capacidad_aprox'] : null;
+        $placa           = trim($_POST['placa'] ?? '');
 
-    if ($nombreMotorista === '') {
-        $errors[] = 'Debe ingresar el nombre del motorista.';
-    }
-    if ($telMotorista === '') {
-        $errors[] = 'Debe ingresar el teléfono del motorista.';
-    }
+        if ($nombreMotorista === '') {
+            $errors[] = 'Debe ingresar el nombre del motorista.';
+        }
+        if ($telMotorista === '') {
+            $errors[] = 'Debe ingresar el teléfono del motorista.';
+        }
 
-    if (!$errors) {
-        try {
-            // Empezamos transacción para dejar todo coherente
-            $pdo->beginTransaction();
+        if (!$errors) {
+            try {
+                // Empezamos transacción para dejar todo coherente
+                $pdo->beginTransaction();
 
-            // 1) Guardar / actualizar tabla ruta_config_bus (para saber que ya configuró el bus)
-            $stmt = $pdo->prepare("
-                INSERT INTO ruta_config_bus
-                    (idruta, nombre_motorista, telefono_motorista, capacidad_aprox, placa)
-                VALUES
-                    (:idruta, :nombre, :tel, :cap, :placa)
-                ON DUPLICATE KEY UPDATE
-                    nombre_motorista   = VALUES(nombre_motorista),
-                    telefono_motorista = VALUES(telefono_motorista),
-                    capacidad_aprox    = VALUES(capacidad_aprox),
-                    placa              = VALUES(placa),
-                    fecha_actualizado  = CURRENT_TIMESTAMP
-            ");
-            $stmt->execute([
-                ':idruta' => $idruta,
-                ':nombre' => $nombreMotorista,
-                ':tel'    => $telMotorista,
-                ':cap'    => $capacidad,
-                ':placa'  => $placa
-            ]);
+                // 1) Guardar / actualizar tabla ruta_config_bus
+                $stmt = $pdo->prepare("
+                    INSERT INTO ruta_config_bus
+                        (idruta, nombre_motorista, telefono_motorista, capacidad_aprox, placa)
+                    VALUES
+                        (:idruta, :nombre, :tel, :cap, :placa)
+                    ON DUPLICATE KEY UPDATE
+                        nombre_motorista   = VALUES(nombre_motorista),
+                        telefono_motorista = VALUES(telefono_motorista),
+                        capacidad_aprox    = VALUES(capacidad_aprox),
+                        placa              = VALUES(placa),
+                        fecha_actualizado  = CURRENT_TIMESTAMP
+                ");
+                $stmt->execute([
+                    ':idruta' => $idruta,
+                    ':nombre' => $nombreMotorista,
+                    ':tel'    => $telMotorista,
+                    ':cap'    => $capacidad,
+                    ':placa'  => $placa
+                ]);
 
-            // 2) Buscar el idbus de esta ruta
-            $stmtBusId = $pdo->prepare("
-                SELECT idbus
-                FROM ruta
-                WHERE idruta = :idruta
-                LIMIT 1
-            ");
-            $stmtBusId->execute([':idruta' => $idruta]);
-            $idbus = $stmtBusId->fetchColumn();
-
-            // 3) Actualizar tabla bus (solo los campos que vienen del formulario)
-            if ($idbus) {
-                // Si quieres que la capacidad solo se actualice cuando se ponga un número,
-                // armamos dinámicamente el SQL para no tocarla cuando venga null.
-                $sqlBus = "
-                    UPDATE bus
-                    SET placa = :placa,
-                        conductor = :conductor,
-                        telefono = :telefono";
-
-                if ($capacidad !== null) {
-                    $sqlBus .= ",
-                        capacidad_asientos = :capacidad";
+                // 2) Actualizar también tabla bus si estuviera ligada
+                if (!empty($ruta['placa'])) {
+                    $stmt = $pdo->prepare("
+                        UPDATE bus
+                        SET conductor = :nombre,
+                            telefono  = :tel
+                        WHERE placa = :placa
+                        LIMIT 1
+                    ");
+                    $stmt->execute([
+                        ':nombre' => $nombreMotorista,
+                        ':tel'    => $telMotorista,
+                        ':placa'  => $ruta['placa']
+                    ]);
                 }
 
-                $sqlBus .= "
-                    WHERE idbus = :idbus
-                ";
-
-                $paramsBus = [
-                    ':placa'     => $placa,
-                    ':conductor' => $nombreMotorista,
-                    ':telefono'  => $telMotorista,
-                    ':idbus'     => $idbus,
-                ];
-
-                if ($capacidad !== null) {
-                    $paramsBus[':capacidad'] = $capacidad;
+                $pdo->commit();
+                $success = 'Datos del autobús actualizados correctamente.';
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
                 }
-
-                $stmtBus = $pdo->prepare($sqlBus);
-                $stmtBus->execute($paramsBus);
-                // OJO: aquí NO tocamos asientos_ocupados ni proveedor
-            }
-
-            $pdo->commit();
-
-            $success = 'Datos del autobús guardados correctamente.';
-
-            // Recargar la config en memoria para cambiar de paso
-            $configBus = [
-                'idruta'             => $idruta,
-                'nombre_motorista'   => $nombreMotorista,
-                'telefono_motorista' => $telMotorista,
-                'capacidad_aprox'    => $capacidad,
-                'placa'              => $placa,
-            ];
-        } catch (Throwable $e) {
-            if ($pdo->inTransaction()) {
-                $pdo->rollBack();
-            }
-            $errors[] = 'Error al guardar la información del autobús.';
-            // si quieres debugear:
-            // $errors[] = $e->getMessage();
-        }
-    }
-}
-
-// ---------- FORM 2: Primer reporte “Salida hacia el estadio” ----------
-if ($formStep === 'primer_reporte' && $idAccionSalida) {
-
-    if ($tienePrimerReporte) {
-        $errors[] = "El primer reporte ('Salida hacia el estadio') ya fue enviado hoy.";
-    }
-
-    $totalPersonas = isset($_POST['total_personas']) ? (int)$_POST['total_personas'] : 0;
-    $comentario    = trim($_POST['comentario'] ?? '');
-
-    if ($totalPersonas <= 0) {
-        $errors[] = 'Debe indicar la cantidad de personas a bordo.';
-    }
-
-    if (!$errors) {
-        try {
-            // Usaremos idparada = 0 para los reportes del líder de ruta
-            $idparada = 0;
-
-            $stmt = $pdo->prepare("
-                INSERT INTO reporte
-                    (idruta, idagente, idparada, idaccion,
-                    total_personas, total_becarios, total_menores12,
-                    comentario, fecha_reporte)
-                VALUES
-                    (:idruta, NULL, :idparada, :idaccion,
-                    :total, 0, 0,
-                    :comentario, NOW())
-            ");
-            $stmt->execute([
-                ':idruta'     => $idruta,
-                ':idparada'   => $idparada,
-                ':idaccion'   => $idAccionSalida,
-                ':total'      => $totalPersonas,
-                ':comentario' => $comentario
-            ]);
-
-            // 🔥 ACTIVAR la ruta cuando se envía "Salida hacia el estadio"
-            $stmtActiva = $pdo->prepare("UPDATE ruta SET activa = 1 WHERE idruta = :idruta");
-            $stmtActiva->execute([':idruta' => $idruta]);
-
-            // Si no se actualizó ninguna fila, mostramos un aviso para debug en la pantalla
-            if ($stmtActiva->rowCount() === 0) {
-                $errors[] = 'Aviso: no se actualizó ninguna fila en ruta (idruta='.(int)$idruta.').';
-            } else {
-                $success            = 'Primer reporte registrado correctamente (Salida hacia el estadio).';
-                $tienePrimerReporte = true;
-            }
-
-        } catch (Throwable $e) {
-            $errors[] = 'Error al guardar el reporte: ' . $e->getMessage();
-        }
-    }
-}
-
-// ---------- FORM 3: Nuevo reporte general ----------
-if ($formStep === 'nuevo_reporte') {
-    $idaccion   = isset($_POST['idaccion']) ? (int)$_POST['idaccion'] : 0;
-    $rawTotal   = trim($_POST['total_personas'] ?? '');
-    $totalPersonas = ($rawTotal !== '') ? max(0, (int)$rawTotal) : 0;
-    $comentario = trim($_POST['comentario'] ?? '');
-
-    if ($idaccion <= 0) {
-        $errors[] = 'Debe seleccionar el tipo de reporte.';
-    }
-
-    $nombreAccion = null;
-    if ($idaccion > 0) {
-        foreach ($acciones as $a) {
-            if ((int)$a['idaccion'] === $idaccion) {
-                $nombreAccion = $a['nombre'];
-                break;
+                $errors[] = 'Error al guardar la información del autobús.';
             }
         }
     }
 
-    // ¿Esta acción suma personas?
-    $requierePersonas = accionRequierePersonas($nombreAccion, $accionesRequierenPersonas);
+    // ---------- FORM 2: Primer reporte “Salida del punto de inicio” ----------
+    if ($formStep === 'primer_reporte' && $idAccionSalida) {
+        $totalPersonas = isset($_POST['total_personas'])
+            ? max(1, (int)$_POST['total_personas'])
+            : 0;
+        $comentario = trim($_POST['comentario'] ?? '');
+        $idparada   = isset($_POST['idparada']) ? (int)$_POST['idparada'] : 0;
 
-    // Solo obligamos número de personas para las acciones que suman
-    if ($requierePersonas && $totalPersonas <= 0) {
-        $errors[] = 'Debe indicar la cantidad de personas para esta acción.';
+        if ($totalPersonas <= 0) {
+            $errors[] = 'Debe indicar la cantidad de personas que salen desde el punto de inicio.';
+        }
+
+        if (!$errors) {
+            try {
+                $stmt = $pdo->prepare("
+                    INSERT INTO reporte (idruta, total_personas, comentario, idaccion, idparada)
+                    VALUES (:idruta, :total, :comentario, :idaccion, :idparada)
+                ");
+                $stmt->execute([
+                    ':idruta'     => $idruta,
+                    ':total'      => $totalPersonas,
+                    ':comentario' => $comentario,
+                    ':idaccion'   => $idAccionSalida,
+                    ':idparada'   => $idparada
+                ]);
+
+                // 🔥 ACTIVAR la ruta cuando se envía "Salida del punto de inicio"
+                $stmtActiva = $pdo->prepare("UPDATE ruta SET activa = 1 WHERE idruta = :idruta");
+                $stmtActiva->execute([':idruta' => $idruta]);
+
+                if ($stmtActiva->rowCount() === 0) {
+                    $errors[] = 'Aviso: no se actualizó ninguna fila en ruta (idruta='.(int)$idruta.').';
+                } else {
+                    $success            = 'Primer reporte registrado correctamente (Salida del punto de inicio).';
+                    $tienePrimerReporte = true;
+                }
+            } catch (Throwable $e) {
+                $errors[] = 'Error al guardar el reporte: ' . $e->getMessage();
+            }
+        }
     }
 
-    // Si NO suma personas (incidentes, llegadas, etc.), forzamos a 0
-    if (!$requierePersonas) {
-        $totalPersonas = 0;
-    }
+    // ---------- FORM 3: Nuevo reporte general ----------
+    if ($formStep === 'nuevo_reporte') {
+        $idaccion   = isset($_POST['idaccion']) ? (int)$_POST['idaccion'] : 0;
+        $rawTotal   = trim($_POST['total_personas'] ?? '');
+        $totalPersonas = ($rawTotal !== '') ? max(0, (int)$rawTotal) : 0;
+        $comentario = trim($_POST['comentario'] ?? '');
 
-    if (!$errors) {
-        try {
-            // Para este flujo usamos idparada = 0 por ahora
-            $idparada = 0;
+        if ($idaccion <= 0) {
+            $errors[] = 'Debe seleccionar el tipo de reporte.';
+        }
 
-            $stmt = $pdo->prepare("
-                INSERT INTO reporte
-                    (idruta, idagente, idparada, idaccion,
-                     total_personas, total_becarios, total_menores12,
-                     comentario, fecha_reporte)
-                VALUES
-                    (:idruta, NULL, :idparada, :idaccion,
-                     :total, 0, 0,
-                     :comentario, NOW())
-            ");
-            $stmt->execute([
-                ':idruta'     => $idruta,
-                ':idparada'   => $idparada,
-                ':idaccion'   => $idaccion,
-                ':total'      => $totalPersonas, // aquí llegan solo incrementos
-                ':comentario' => $comentario
-            ]);
+        $nombreAccion = null;
+        $flagArrivalAccion = 0;
+        if ($idaccion > 0) {
+            foreach ($acciones as $a) {
+                if ((int)$a['idaccion'] === $idaccion) {
+                    $nombreAccion    = $a['nombre'];
+                    $flagArrivalAccion = (int)$a['flag_arrival'];
+                    break;
+                }
+            }
+        }
 
-            // 🔥 ACTIVAR LA RUTA AL REGISTRAR CUALQUIER NUEVO REPORTE
-            $pdo->prepare("
-                UPDATE ruta
-                SET activa = 1
-                WHERE idruta = :idruta
-            ")->execute([':idruta' => $idruta]);
+        // ¿Esta acción suma personas?
+        $requierePersonas = accionRequierePersonas($nombreAccion, $accionesRequierenPersonas);
 
-            // 🔥 LLEGADA AL ESTADIO (idaccion = 16) → marcar flag_arrival = 1
-            if ($idaccion === 16) {
+        // Solo obligamos número de personas para las acciones que suman
+        if ($requierePersonas && $totalPersonas <= 0) {
+            $errors[] = 'Debe indicar la cantidad de personas para esta acción.';
+        }
+
+        // Si NO suma personas (incidentes, llegadas, etc.), forzamos a 0
+        if (!$requierePersonas) {
+            $totalPersonas = 0;
+        }
+
+        if (!$errors) {
+            try {
+                // Para este flujo usamos idparada opcional (si aplica)
+                $idparada = isset($_POST['idparada']) ? (int)$_POST['idparada'] : 0;
+
+                $stmt = $pdo->prepare("
+                    INSERT INTO reporte (idruta, total_personas, comentario, idaccion, idparada)
+                    VALUES (:idruta, :total, :comentario, :idaccion, :idparada)
+                ");
+                $stmt->execute([
+                    ':idruta'     => $idruta,
+                    ':total'      => $totalPersonas,
+                    ':comentario' => $comentario,
+                    ':idaccion'   => $idaccion,
+                    ':idparada'   => $idparada
+                ]);
+
+                // 🔥 ACTIVAR LA RUTA AL REGISTRAR CUALQUIER NUEVO REPORTE
                 $pdo->prepare("
                     UPDATE ruta
-                    SET flag_arrival = 1
+                    SET activa = 1
                     WHERE idruta = :idruta
                 ")->execute([':idruta' => $idruta]);
-            }
 
-            $success = 'Reporte registrado correctamente.';
-        } catch (Throwable $e) {
-            $errors[] = 'Error al guardar el reporte: ' . $e->getMessage();
+                // 🔥 LLEGADA AL ESTADIO (idaccion = 16) → marcar flag_arrival = 1
+                if ($idaccion === 16) {
+                    $pdo->prepare("
+                        UPDATE ruta
+                        SET flag_arrival = 1
+                        WHERE idruta = :idruta
+                    ")->execute([':idruta' => $idruta]);
+                }
+
+                $success = 'Reporte registrado correctamente.';
+            } catch (Throwable $e) {
+                $errors[] = 'Error al guardar el reporte: ' . $e->getMessage();
+            }
+        }
+    }
+
+    // ---------- FORM 4: Reporte solo de ubicación ----------
+    if ($formStep === 'ubicacion') {
+        $lat  = isset($_POST['lat']) ? (float)$_POST['lat'] : null;
+        $lng  = isset($_POST['lng']) ? (float)$_POST['lng'] : null;
+        $prec = isset($_POST['precision']) ? (float)$_POST['precision'] : null;
+
+        if ($lat === null || $lng === null) {
+            $errors[] = 'No se recibió la ubicación GPS.';
+        }
+
+        if (!$errors) {
+            try {
+                $stmt = $pdo->prepare("
+                    INSERT INTO ubicaciones (idruta, latitud, longitud, precision_gps)
+                    VALUES (:idruta, :lat, :lng, :prec)
+                ");
+                $stmt->execute([
+                    ':idruta' => $idruta,
+                    ':lat'    => $lat,
+                    ':lng'    => $lng,
+                    ':prec'   => $prec
+                ]);
+
+                $success = 'Ubicación enviada correctamente.';
+            } catch (Throwable $e) {
+                $errors[] = 'Error al guardar la ubicación: ' . $e->getMessage();
+            }
         }
     }
 }
+
+// ===============================
+// 9) Preparar datos para los selects del formulario
+// ===============================
+$accionesNormal        = [];
+$accionesCritico       = [];
+$accionesInconveniente = [];
+
+foreach ($acciones as $a) {
+    $tipo = strtolower($a['tipo_accion'] ?? '');
+    if ($tipo === 'normal') {
+        $accionesNormal[] = $a;
+    } elseif ($tipo === 'critico') {
+        $accionesCritico[] = $a;
+    } elseif ($tipo === 'inconveniente') {
+        $accionesInconveniente[] = $a;
+    }
 }
 
 // ===============================
-// 9) Determinar paso actual
+// HTML / VISTA
 // ===============================
-if (!$configBus) {
-    $step = 'config_bus';
-} elseif (!$tienePrimerReporte && $idAccionSalida) {
-    $step = 'primer_reporte';
-} else {
-    $step = 'nuevo_reporte';
-}
-
-$accionesRequierenPersonasJs = json_encode($accionesRequierenPersonas);
 ?>
-<!-- A partir de aquí deja igual tu HTML y JS del formulario -->
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="utf-8">
-    <title>Reporte de Ruta</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-
-    <!-- Bootstrap 4 simple (sin integrity para evitar bloqueos) -->
-    <link rel="stylesheet"
-          href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
-
-    <style>
-        body {
-            background: #f4f6f9;
-        }
-        .reporte-container {
-            min-height: 100vh;
-            display: flex;
-            align-items: flex-start;
-            justify-content: center;
-            padding-top: 30px;
-            padding-bottom: 30px;
-        }
-        .reporte-card {
-            width: 100%;
-            max-width: 650px;
-            box-shadow: 0 0 12px rgba(0,0,0,0.08);
-            border-radius: 8px;
-            background: #fff;
-        }
-        .reporte-card .card-header {
-            background: #0b7cc2;
-            color: #fff;
-            border-radius: 8px 8px 0 0;
-        }
-        .btn-ubicacion {
-            background-color: #28a745;
-            border-color: #28a745;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <title>Reporte de ruta</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link
+    rel="stylesheet"
+    href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css"
+  >
+  <style>
+    body {
+      background-color: #f1f5f9;
+    }
+    .card-header {
+      background-color: #0d6efd;
+      color: #fff;
+    }
+    .btn-ubicacion {
+      background-color: #198754;
+      color: #fff;
+    }
+  </style>
 </head>
 <body>
+<div class="container my-4">
 
-<div class="reporte-container">
-  <div class="card reporte-card">
-    <div class="card-header">
-      <div class="d-flex justify-content-between align-items-center">
-        <div>
-          <h5 class="mb-0">Ruta: <?= htmlspecialchars($rutaNombre ?: ($rutaInfo['nombre'] ?? '')) ?></h5>
-          <?php if ($rutaInfo): ?>
-            <small>
-              Destino: <?= htmlspecialchars($rutaInfo['destino'] ?? '-') ?>
-              <?php if (!empty($rutaInfo['encargado'])): ?>
-                <br>Líder: <?= htmlspecialchars($rutaInfo['encargado']) ?>
-              <?php endif; ?>
-            </small>
-          <?php endif; ?>
-        </div>
-        <div>
-          <a href="logout.php" class="btn btn-sm btn-outline-light">Salir</a>
-        </div>
+  <!-- Encabezado de la ruta -->
+  <div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <div>
+        <h5 class="mb-1">
+          Ruta: <?= htmlspecialchars($ruta['ruta_nombre'] ?? $rutaNombre) ?>
+        </h5>
+        <small>
+          Destino: <?= htmlspecialchars($ruta['destino'] ?? '') ?><br>
+          Líder: <?= htmlspecialchars($ruta['encargado_nombre'] ?? '') ?>
+        </small>
       </div>
+      <a href="logout.php" class="btn btn-light btn-sm">Salir</a>
     </div>
+  </div>
 
+  <?php if ($errors): ?>
+    <div class="alert alert-danger">
+      <ul class="mb-0">
+        <?php foreach ($errors as $e): ?>
+          <li><?= htmlspecialchars($e) ?></li>
+        <?php endforeach; ?>
+      </ul>
+    </div>
+  <?php endif; ?>
+
+  <?php if ($success): ?>
+    <div class="alert alert-success">
+      <?= htmlspecialchars($success) ?>
+    </div>
+  <?php endif; ?>
+
+  <!-- CARD: Nuevo reporte -->
+  <div class="card mb-4">
     <div class="card-body">
+      <h5 class="card-title">Nuevo reporte</h5>
+      <p class="card-text">
+        Envíe reportes de ruta, incidencias o emergencias. Use el botón verde para mandar solo la ubicación del bus.
+      </p>
 
-      <?php if ($errors): ?>
-        <div class="alert alert-danger">
-          <?php foreach ($errors as $e): ?>
-            <div><?= htmlspecialchars($e) ?></div>
-          <?php endforeach; ?>
-        </div>
-      <?php endif; ?>
-
-      <?php if ($success): ?>
-        <div class="alert alert-success">
-          <?= htmlspecialchars($success) ?>
-        </div>
-      <?php endif; ?>
-
-      <!-- Paso 1: Configuración del autobús -->
-      <?php if ($step === 'config_bus'): ?>
-        <h6 class="mb-3">Validar datos del autobús</h6>
-        <p class="text-muted">
-          Completa esta información una sola vez antes de enviar reportes.
-        </p>
-
-        <form method="post" autocomplete="off">
-          <input type="hidden" name="form_step" value="config_bus">
-
-          <div class="form-group">
-            <label for="nombre_motorista">Nombre del motorista</label>
-            <input type="text"
-                   name="nombre_motorista"
-                   id="nombre_motorista"
-                   class="form-control"
-                   required>
-          </div>
-
-          <div class="form-group">
-            <label for="telefono_motorista">Teléfono del conductor</label>
-            <input type="number"
-                   name="telefono_motorista"
-                   id="telefono_motorista"
-                   class="form-control"
-                   min="50000000"
-                   max="89999999"
-                   required>
-          </div>
-
-          <!-- <div class="form-group">
-            <label for="capacidad_aprox">Capacidad aproximada del autobús</label>
-            <input type="number"
-                   name="capacidad_aprox"
-                   id="capacidad_aprox"
-                   class="form-control"
-                   min="0"
-                   max="100"
-                   placeholder="Ejemplo. 100">
-          </div> -->
-
-          <div class="form-group">
-            <label for="placa">Placa</label>
-            <input type="text"
-                   name="placa"
-                   id="placa"
-                   class="form-control">
-          </div>
-
-          <button type="submit" class="btn btn-primary btn-block">
-            Guardar datos del autobús
-          </button>
-        </form>
-
-      <!-- Paso 2: Primer reporte (Salida hacia el estadio) -->
-      <?php elseif ($step === 'primer_reporte'): ?>
-        <h6 class="mb-3">Primer reporte: Salida hacia el estadio</h6>
-        <p class="text-muted">
-          Registra la cantidad total de personas a bordo al momento de salir hacia el estadio.
-        </p>
-
-        <form method="post" autocomplete="off">
-          <input type="hidden" name="form_step" value="primer_reporte">
-
-          <div class="form-group">
-            <label for="total_personas">Cantidad de personas a bordo</label>
-            <input type="number"
-                   name="total_personas"
-                   id="total_personas"
-                   class="form-control"
-                   required
-                   min="1">
-          </div>
-
-          <div class="form-group">
-            <label for="comentario">Comentario (opcional)</label>
-            <input type="text"
-                   name="comentario"
-                   id="comentario"
-                   class="form-control">
-          </div>
-
-          <button type="submit" class="btn btn-primary btn-block">
-            Guardar primer reporte
-          </button>
-        </form>
-
-      <!-- Paso 3: Nuevo reporte + botón Enviar ubicación -->
-      <?php else: ?>
-        <h6 class="mb-3">Nuevo reporte</h6>
-        <p class="text-muted">
-          Envíe reportes de ruta, incidencias o emergencias.  
-          Use el botón verde para mandar solo la ubicación del bus.
-        </p>
-        <?php
-      // Clasificar acciones por tipo_accion (normal / critico / inconveniente)
-      $accionesNormal        = [];
-      $accionesCritico       = [];
-      $accionesInconveniente = [];
-
-      foreach ($acciones as $a) {
-          $tipo = strtolower($a['tipo_accion'] ?? '');
-          if ($tipo === 'normal') {
-              $accionesNormal[] = $a;
-          } elseif ($tipo === 'critico') {
-              $accionesCritico[] = $a;
-          } elseif ($tipo === 'inconveniente') {
-              $accionesInconveniente[] = $a;
-          }
-      }
+      <?php
+      // Separar acciones por tipo de severidad (normal / crítico / inconveniente)
       ?>
-        <form method="post" autocomplete="off" id="formNuevoReporte">
-  <input type="hidden" name="form_step" value="nuevo_reporte">
 
-  <!-- Campo REAL que verá el backend (idaccion numérico) -->
-  <input type="hidden" name="idaccion" id="idaccion_real" value="">
+      <form method="post" autocomplete="off" id="formNuevoReporte">
+        <input type="hidden" name="form_step" value="nuevo_reporte">
 
-  <!-- 1) Tipo de reporte: Normal / Incidente -->
-  <div class="form-group">
-    <label for="tipo_reporte">Tipo de reporte</label>
-    <select name="tipo_reporte" id="tipo_reporte" class="form-control" required>
-      <option value="">Seleccione…</option>
-      <option value="normal">Normal</option>
-      <option value="incidente">Incidente</option>
-    </select>
-  </div>
+        <!-- Campo REAL que verá el backend (idaccion numérico) -->
+        <input type="hidden" name="idaccion" id="idaccion_real" value="">
 
-  <!-- 2) Detalle cuando es NORMAL -->
-  <div class="form-group" id="grupo_normal" style="display:none;">
-    <label for="idaccion_normal">Detalle del reporte (normal)</label>
-    <select id="idaccion_normal" class="form-control">
-      <option value="">Seleccione…</option>
-      <?php foreach ($accionesNormal as $a): ?>
-        <?php
-          $requiere = accionRequierePersonas($a['nombre'], $accionesRequierenPersonas) ? '1' : '0';
-        ?>
-        <option value="<?= (int)$a['idaccion'] ?>"
-                data-requiere-personas="<?= $requiere ?>">
-          <?= htmlspecialchars($a['nombre']) ?>
-        </option>
-      <?php endforeach; ?>
-    </select>
-  </div>
+        <!-- 1) Tipo de reporte: Normal / Incidente -->
+        <div class="form-group">
+          <label for="tipo_reporte">Tipo de reporte</label>
+          <select name="tipo_reporte" id="tipo_reporte" class="form-control" required>
+            <option value="">Seleccione…</option>
+            <option value="normal">Normal</option>
+            <option value="incidente">Incidente</option>
+          </select>
+        </div>
 
-  <!-- 3) Detalle cuando es INCIDENTE -->
-  <div class="form-group" id="grupo_incidente" style="display:none;">
-    <label for="idaccion_incidente">Detalle del incidente</label>
-    <select id="idaccion_incidente" class="form-control">
-      <option value="">Seleccione…</option>
+        <!-- 2) Detalle cuando es NORMAL -->
+        <div class="form-group" id="grupo_normal" style="display:none;">
+          <label for="idaccion_normal">Detalle del reporte (normal)</label>
+          <select id="idaccion_normal" class="form-control">
+            <option value="">Seleccione…</option>
+            <?php foreach ($accionesNormal as $a): ?>
+              <?php
+                $requiere = accionRequierePersonas($a['nombre'], $accionesRequierenPersonas) ? '1' : '0';
+              ?>
+              <option value="<?= (int)$a['idaccion'] ?>"
+                      data-requiere-personas="<?= $requiere ?>">
+                <?= htmlspecialchars($a['nombre']) ?>
+              </option>
+            <?php endforeach; ?>
+          </select>
+        </div>
 
-      <!-- Crítico -->
-      <?php if (!empty($accionesCritico)): ?>
-        <optgroup label="Crítico">
-          <?php foreach ($accionesCritico as $a): ?>
-            <?php
-              $requiere = accionRequierePersonas($a['nombre'], $accionesRequierenPersonas) ? '1' : '0';
-            ?>
-            <option value="<?= (int)$a['idaccion'] ?>"
-                    data-requiere-personas="<?= $requiere ?>">
-              <?= htmlspecialchars($a['nombre']) ?>
-            </option>
-          <?php endforeach; ?>
-        </optgroup>
-      <?php endif; ?>
+        <!-- 3) Detalle cuando es INCIDENTE -->
+        <div class="form-group" id="grupo_incidente" style="display:none;">
+          <label for="idaccion_incidente">Detalle del incidente</label>
+          <select id="idaccion_incidente" class="form-control">
+            <option value="">Seleccione…</option>
 
-      <!-- Inconveniente -->
-      <?php if (!empty($accionesInconveniente)): ?>
-        <optgroup label="Inconveniente">
-          <?php foreach ($accionesInconveniente as $a): ?>
-            <?php
-              $requiere = accionRequierePersonas($a['nombre'], $accionesRequierenPersonas) ? '1' : '0';
-            ?>
-            <option value="<?= (int)$a['idaccion'] ?>"
-                    data-requiere-personas="<?= $requiere ?>">
-              <?= htmlspecialchars($a['nombre']) ?>
-            </option>
-          <?php endforeach; ?>
-        </optgroup>
-      <?php endif; ?>
-    </select>
-  </div>
+            <!-- Crítico -->
+            <?php if (!empty($accionesCritico)): ?>
+              <optgroup label="Crítico">
+                <?php foreach ($accionesCritico as $a): ?>
+                  <?php
+                    $requiere = accionRequierePersonas($a['nombre'], $accionesRequierenPersonas) ? '1' : '0';
+                  ?>
+                  <option value="<?= (int)$a['idaccion'] ?>"
+                          data-requiere-personas="<?= $requiere ?>">
+                    <?= htmlspecialchars($a['nombre']) ?>
+                  </option>
+                <?php endforeach; ?>
+              </optgroup>
+            <?php endif; ?>
 
-  <!-- 4) Cantidad de personas (se activa solo si aplica) -->
-  <div class="form-group">
-    <label for="total_personas_main">Cantidad de personas que subieron</label>
-    <input type="number"
-           name="total_personas"
-           id="total_personas_main"
-           class="form-control"
-           min="0"
-           disabled>
-    <small class="form-text text-muted">
-      Solo se habilita para eventos como “Salida hacia el estadio” o “Salida de parada”.
-    </small>
-  </div>
+            <!-- Inconveniente -->
+            <?php if (!empty($accionesInconveniente)): ?>
+              <optgroup label="Inconveniente">
+                <?php foreach ($accionesInconveniente as $a): ?>
+                  <?php
+                    $requiere = accionRequierePersonas($a['nombre'], $accionesRequierenPersonas) ? '1' : '0';
+                  ?>
+                  <option value="<?= (int)$a['idaccion'] ?>"
+                          data-requiere-personas="<?= $requiere ?>">
+                    <?= htmlspecialchars($a['nombre']) ?>
+                  </option>
+                <?php endforeach; ?>
+              </optgroup>
+            <?php endif; ?>
+          </select>
+        </div>
 
-  <div class="form-group">
-    <label for="comentario">Comentario (opcional)</label>
-    <input type="text"
-           name="comentario"
-           id="comentario"
-           class="form-control">
-  </div>
+        <!-- 4) Cantidad de personas (se activa solo si aplica) -->
+        <div class="form-group">
+          <label for="total_personas_main">Cantidad de personas que subieron</label>
+          <input type="number"
+                name="total_personas"
+                id="total_personas_main"
+                class="form-control"
+                min="0"
+                disabled>
+          <small class="form-text text-muted">
+            Solo se habilita para eventos como “Abordaje de personas”, “Salida del punto de inicio” o “Retorno a punto de inicio”.
+          </small>
+        </div>
 
-  <button type="submit" class="btn btn-primary btn-block">
-    Enviar reporte
-  </button>
-</form>
-        <hr>
+        <!-- 5) Comentario general -->
+        <div class="form-group">
+          <label for="comentario">Comentario (opcional)</label>
+          <textarea
+            name="comentario"
+            id="comentario"
+            class="form-control"
+            rows="3"
+          ></textarea>
+        </div>
 
-        <!-- Botón de ubicación SOLO disponible cuando ya hay primer reporte -->
-        <button type="button"
-                class="btn btn-ubicacion btn-block"
-                id="btnUbicacion">
+        <button type="submit" class="btn btn-primary btn-block">
+          Enviar reporte
+        </button>
+      </form>
+
+      <hr>
+
+      <!-- Botón aparte para enviar solo ubicación -->
+      <form method="post" id="formUbicacion" class="mt-3">
+        <input type="hidden" name="form_step" value="ubicacion">
+        <input type="hidden" name="lat" id="lat">
+        <input type="hidden" name="lng" id="lng">
+        <input type="hidden" name="precision" id="precision">
+
+        <button type="button" id="btnUbicacion" class="btn btn-ubicacion btn-block">
           Enviar ubicación
         </button>
-
-        <small class="text-muted d-block mt-2">
-          Este botón solo envía la posición GPS de la unidad
-          (sin crear un nuevo evento de reporte).
+        <small class="form-text text-muted">
+          Este botón solo envía la posición GPS de la unidad (sin crear un nuevo evento de reporte).
         </small>
-
-      <?php endif; ?>
-
+      </form>
     </div>
   </div>
+
 </div>
 
+<script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
 <script>
-// Reglas compartidas: nombres de acciones que requieren personas (desde PHP)
-const ACCIONES_REQUIEREN_PERSONAS = <?= $accionesRequierenPersonasJs ?> || [];
-
-// --- Lógica de selects y personas ---
-(function () {
-  const tipoReporte      = document.getElementById('tipo_reporte');
-  const grupoNormal      = document.getElementById('grupo_normal');
-  const grupoIncidente   = document.getElementById('grupo_incidente');
-  const selNormal        = document.getElementById('idaccion_normal');
-  const selIncidente     = document.getElementById('idaccion_incidente');
-  const hiddenIdaccion   = document.getElementById('idaccion_real');
-  const inputPersonas    = document.getElementById('total_personas_main');
-
-  function resetDetalle() {
-    if (selNormal)   selNormal.value = '';
-    if (selIncidente) selIncidente.value = '';
-    hiddenIdaccion.value   = '';
-    inputPersonas.value    = '';
-    inputPersonas.disabled = true;
-    inputPersonas.required = false;
-  }
-
-  function aplicarDesdeSelect(select) {
-    const opt = select.options[select.selectedIndex];
-    if (!opt || !opt.value) {
-      hiddenIdaccion.value   = '';
-      inputPersonas.value    = '';
-      inputPersonas.disabled = true;
-      inputPersonas.required = false;
-      return;
-    }
-
-    hiddenIdaccion.value = opt.value;
-
-    const requiere = opt.dataset.requierePersonas === '1';
-    if (requiere) {
-      inputPersonas.disabled = false;
-      inputPersonas.required = true;
-    } else {
-      inputPersonas.value    = '';
-      inputPersonas.disabled = true;
-      inputPersonas.required = false;
-    }
-  }
-
-  if (tipoReporte) {
-    tipoReporte.addEventListener('change', function () {
-      resetDetalle();
-
-      if (this.value === 'normal') {
-        grupoNormal.style.display    = 'block';
-        grupoIncidente.style.display = 'none';
-      } else if (this.value === 'incidente') {
-        grupoNormal.style.display    = 'none';
-        grupoIncidente.style.display = 'block';
-      } else {
-        grupoNormal.style.display    = 'none';
-        grupoIncidente.style.display = 'none';
-      }
-    });
-  }
-
-  if (selNormal) {
-    selNormal.addEventListener('change', function () {
-      aplicarDesdeSelect(this);
-    });
-  }
-
-  if (selIncidente) {
-    selIncidente.addEventListener('change', function () {
-      aplicarDesdeSelect(this);
-    });
-  }
-
+(function() {
 // Botón "Enviar ubicación"
 const btnUbicacion = document.getElementById('btnUbicacion');
 if (btnUbicacion) {
@@ -887,14 +671,16 @@ if (btnUbicacion) {
 
 })();
 </script>
+
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-  const tipoReporte = document.getElementById('tipo_reporte');
-  const grupoNormal = document.getElementById('grupo_normal');
-  const grupoIncidente = document.getElementById('grupo_incidente');
-  const selNormal = document.getElementById('idaccion_normal');
-  const selIncidente = document.getElementById('idaccion_incidente');
-  const inputPersonas = document.getElementById('total_personas');
+  const tipoReporte   = document.getElementById('tipo_reporte');
+  const grupoNormal   = document.getElementById('grupo_normal');
+  const grupoIncidente= document.getElementById('grupo_incidente');
+  const selNormal     = document.getElementById('idaccion_normal');
+  const selIncidente  = document.getElementById('idaccion_incidente');
+  const inputPersonas = document.getElementById('total_personas_main');
+  const idaccionReal  = document.getElementById('idaccion_real');
 
   function actualizarInputPersonas(select) {
     const opt = select.options[select.selectedIndex];
@@ -907,48 +693,38 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   }
 
+  function limpiarSelects() {
+    selNormal.value = '';
+    selIncidente.value = '';
+    inputPersonas.disabled = true;
+    inputPersonas.value = '';
+    idaccionReal.value = '';
+  }
+
   tipoReporte.addEventListener('change', function () {
-    const v = this.value;
-
-    if (v === 'normal') {
+    limpiarSelects();
+    if (this.value === 'normal') {
       grupoNormal.style.display = 'block';
-      selNormal.disabled = false;
-
       grupoIncidente.style.display = 'none';
-      selIncidente.disabled = true;
-      selIncidente.value = '';
-
-      actualizarInputPersonas(selNormal);
-
-    } else if (v === 'incidente') {
-      grupoIncidente.style.display = 'block';
-      selIncidente.disabled = false;
-
+    } else if (this.value === 'incidente') {
       grupoNormal.style.display = 'none';
-      selNormal.disabled = true;
-      selNormal.value = '';
-
-      actualizarInputPersonas(selIncidente);
+      grupoIncidente.style.display = 'block';
     } else {
       grupoNormal.style.display = 'none';
       grupoIncidente.style.display = 'none';
-      selNormal.disabled = true;
-      selIncidente.disabled = true;
-      inputPersonas.disabled = true;
-      inputPersonas.value = '';
     }
   });
 
   selNormal.addEventListener('change', function () {
+    idaccionReal.value = this.value || '';
     actualizarInputPersonas(this);
   });
 
   selIncidente.addEventListener('change', function () {
+    idaccionReal.value = this.value || '';
     actualizarInputPersonas(this);
   });
 });
 </script>
-
-
 </body>
 </html>

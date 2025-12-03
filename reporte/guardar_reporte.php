@@ -51,10 +51,9 @@ function etiquetaTipoAccion(string $tipo): string {
 }
 
 $accionesRequierenPersonas = [
-    'salida hacia el estadio',
-    'salida de parada',
+    'Salida del punto de inicio',
+    'Abordaje de personas',
 ];
-
 function accionRequierePersonas(?string $nombreAccion, array $lista): bool {
     if (!$nombreAccion) return false;
     $nombre = mb_strtolower($nombreAccion, 'UTF-8');
@@ -72,7 +71,7 @@ try {
     $stmt = $pdo->prepare("
         SELECT idaccion
         FROM acciones
-        WHERE nombre = 'Salida hacia el estadio'
+        WHERE nombre = 'Salida del punto de inicio'
         LIMIT 1
     ");
     $stmt->execute();
@@ -181,7 +180,7 @@ if ($formStep === 'primer_reporte' && $idAccionSalida) {
 
     // Seguridad extra: si ya existe, NO permitir duplicado
     if ($tienePrimerReporte) {
-        $errors[] = "El primer reporte ('Salida hacia el estadio') ya fue enviado hoy.";
+        $errors[] = "El primer reporte ('Salida del punto de inicio') ya fue enviado hoy.";
     }
 
     // Obtener la parada principal (primera parada de la ruta)

@@ -15,20 +15,11 @@ if ($action === 'stats') {
         //    que todavía NO ha llegado al estadio)
         // --------------------------------------------------------
         $sqlPersonasRuta = "
-            SELECT COALESCE(SUM(rp.total_personas),0) AS personas_en_ruta
-            FROM (
-                SELECT r1.idruta, r1.total_personas
-                FROM reporte r1
-                INNER JOIN (
-                    SELECT idruta, MAX(fecha_reporte) AS max_fecha
-                    FROM reporte
-                    GROUP BY idruta
-                ) mx ON r1.idruta = mx.idruta
-                     AND r1.fecha_reporte = mx.max_fecha
-            ) rp
-            INNER JOIN ruta ru ON ru.idruta = rp.idruta
-            WHERE ru.activa = 1
-              AND (ru.flag_arrival IS NULL OR ru.flag_arrival = 0)
+          SELECT COALESCE(SUM(r.total_personas),0) AS personas_en_ruta
+    FROM reporte r
+    INNER JOIN ruta ru ON ru.idruta = r.idruta
+    WHERE ru.activa = 1
+      AND (ru.flag_arrival IS NULL OR ru.flag_arrival = 0)
         ";
         $personas_en_ruta = (int)$pdo->query($sqlPersonasRuta)->fetchColumn();
 
@@ -308,81 +299,126 @@ require __DIR__ . '/../templates/header.php';
 
     <!-- KPIs -->
         <!-- KPIs estilo tiles de color -->
-    <div class="row kpi-row">
+<!-- KPIs -->
+<div class="row kpi-row">
 
-      <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
-        <div class="kpi-tile kpi-teal">
-          <div class="kpi-body">
-            <div class="kpi-label">Total personas reales en ruta(último reporte)</div>
-            <div class="kpi-value" id="kpi_total_reported">0</div>
-          </div>
-          <div class="kpi-icon">
-            <i class="fas fa-users"></i>
-          </div>
-        </div>
+  <!-- 1. Total personas en ruta -->
+  <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+    <div class="kpi-tile kpi-teal">
+      <div class="kpi-body">
+        <div class="kpi-label">Total personas en ruta</div>
+        <div class="kpi-value" id="kpi_total_reported">0</div>
       </div>
-
-      <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
-        <div class="kpi-tile kpi-cyan">
-          <div class="kpi-body">
-            <div class="kpi-label">Total estimado en ruta(paradas)</div>
-            <div class="kpi-value" id="kpi_total_estimated">0</div>
-          </div>
-          <div class="kpi-icon">
-            <i class="fas fa-user-friends"></i>
-          </div>
-        </div>
+      <div class="kpi-icon">
+        <i class="fas fa-users"></i>
       </div>
-
-      <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
-        <div class="kpi-tile kpi-blue">
-          <div class="kpi-body">
-            <div class="kpi-label">Rutas activas</div>
-            <div class="kpi-value" id="kpi_routes_active">0 / 0</div>
-          </div>
-          <div class="kpi-icon">
-            <i class="fas fa-route"></i>
-          </div>
-        </div>
-      </div>
-
-      <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
-        <div class="kpi-tile kpi-green">
-          <div class="kpi-body">
-            <div class="kpi-label">Sin problema</div>
-            <div class="kpi-value" id="kpi_sin_problema">0</div>
-          </div>
-          <div class="kpi-icon">
-            <i class="fas fa-check-circle"></i>
-          </div>
-        </div>
-      </div>
-
-      <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
-        <div class="kpi-tile kpi-orange">
-          <div class="kpi-body">
-            <div class="kpi-label">Inconveniente</div>
-            <div class="kpi-value" id="kpi_inconveniente">0</div>
-          </div>
-          <div class="kpi-icon">
-            <i class="fas fa-exclamation-circle"></i>
-          </div>
-        </div>
-      </div>
-
-      <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
-        <div class="kpi-tile kpi-red">
-          <div class="kpi-body">
-            <div class="kpi-label">Crítico</div>
-            <div class="kpi-value" id="kpi_critico">0</div>
-          </div>
-          <div class="kpi-icon">
-            <i class="fas fa-exclamation-triangle"></i>
-          </div>
-        </div>
-      </div>
-
     </div>
+  </div>
+
+  <!-- 2. Total estimado de personas esperadas -->
+  <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+    <div class="kpi-tile kpi-cyan">
+      <div class="kpi-body">
+        <div class="kpi-label">Total estimado de personas esperadas</div>
+        <div class="kpi-value" id="kpi_total_estimated">0</div>
+      </div>
+      <div class="kpi-icon">
+        <i class="fas fa-user-friends"></i>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. Total personas en estadio -->
+  <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+    <div class="kpi-tile kpi-teal">
+      <div class="kpi-body">
+        <div class="kpi-label">Total de personas en estadio</div>
+        <div class="kpi-value" id="kpi_total_estadio">0</div>
+      </div>
+      <div class="kpi-icon">
+        <i class="fas fa-futbol"></i>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. Rutas activas -->
+  <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+    <div class="kpi-tile kpi-blue">
+      <div class="kpi-body">
+        <div class="kpi-label">Rutas activas</div>
+        <div class="kpi-value" id="kpi_routes_active">0 / 0</div>
+      </div>
+      <div class="kpi-icon">
+        <i class="fas fa-route"></i>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. Sin problema -->
+  <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+    <div class="kpi-tile kpi-green">
+      <div class="kpi-body">
+        <div class="kpi-label">Sin problema</div>
+        <div class="kpi-value" id="kpi_sin_problema">0</div>
+      </div>
+      <div class="kpi-icon">
+        <i class="fas fa-check-circle"></i>
+      </div>
+    </div>
+  </div>
+
+  <!-- 6. Inconveniente -->
+  <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+    <div class="kpi-tile kpi-orange">
+      <div class="kpi-body">
+        <div class="kpi-label">Inconveniente</div>
+        <div class="kpi-value" id="kpi_inconveniente">0</div>
+      </div>
+      <div class="kpi-icon">
+        <i class="fas fa-exclamation-circle"></i>
+      </div>
+    </div>
+  </div>
+
+  <!-- 7. Crítico -->
+  <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+    <div class="kpi-tile kpi-red">
+      <div class="kpi-body">
+        <div class="kpi-label">Crítico</div>
+        <div class="kpi-value" id="kpi_critico">0</div>
+      </div>
+      <div class="kpi-icon">
+        <i class="fas fa-exclamation-triangle"></i>
+      </div>
+    </div>
+  </div>
+
+  <!-- 8. Rutas hacia punto de inicio -->
+  <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+    <div class="kpi-tile kpi-blue">
+      <div class="kpi-body">
+        <div class="kpi-label">Rutas hacia punto de inicio</div>
+        <div class="kpi-value" id="kpi_routes_return_home">0 / 0</div>
+      </div>
+      <div class="kpi-icon">
+        <i class="fas fa-route"></i>
+      </div>
+    </div>
+  </div>
+
+  <!-- 9. Rutas que ya llegaron a casa -->
+  <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+    <div class="kpi-tile kpi-blue">
+      <div class="kpi-body">
+        <div class="kpi-label">Rutas que ya llegaron a casa</div>
+        <div class="kpi-value" id="kpi_routes_arrived_home">0 / 0</div>
+      </div>
+      <div class="kpi-icon">
+        <i class="fas fa-home"></i>
+      </div>
+    </div>
+  </div>
+</div>
 
     <!-- Gráficas + Tabla + Mapa -->
     <!-- Bloque de gráficos + mapa -->
@@ -534,10 +570,13 @@ async function renderKpisAndChart(){
     // ---------- KPIs ----------
     // Personas en estadio / estimadas
     $('#kpi_total_reported').text(
-      fmtNumber(stats.personas_en_estadio || 0)
+      fmtNumber(stats.personas_en_ruta || 0)
     );
     $('#kpi_total_estimated').text(
       fmtNumber(stats.total_estimated || 0)
+    );
+    $('#kpi_total_estadio').text(
+      fmtNumber(stats.personas_en_estadio || 0)
     );
 
     // Rutas en transito / Rutas Estimado (en un solo tile)

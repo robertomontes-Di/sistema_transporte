@@ -43,12 +43,23 @@ try {
     /* ============================================================
        3. OBTENER ACCIONES DISPONIBLES PARA LA RUTA
     ============================================================ */
-    $sqlAcc = "
-        SELECT idaccion, nombre
-        FROM acciones
-        WHERE flag_arrival = 0
-        ORDER BY nombre ASC
-    ";
+// Acciones disponibles para monitoreo
+// - Se ordenan por la columna `orden`
+// - Se marca si requieren cantidad de personas (como en reporte.php)
+$sqlAcc = "
+    SELECT 
+        idaccion,
+        nombre,
+        CASE
+            WHEN LOWER(nombre) LIKE '%abordaje de personas%' THEN 1
+            WHEN LOWER(nombre) LIKE '%salida del punto de inicio%' THEN 1
+            ELSE 0
+        END AS requiere_personas
+    FROM acciones
+    WHERE flag_arrival = 0
+    ORDER BY orden ASC, nombre ASC
+";
+
     $stmtAcc = $pdo->prepare($sqlAcc);
     // SQL no usa :idruta, por eso no pasamos parámetros aquí
     $stmtAcc->execute();
