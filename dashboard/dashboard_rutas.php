@@ -1,240 +1,211 @@
 <?php
 // dashboard/dashboard_rutas.php
-
 require_once __DIR__ . '/../includes/db.php';
 
-// Detectar si es llamada API (JSON) o carga normal HTML
 $action = $_GET['action'] ?? null;
 
+/*
+  Endpoints:
+    ?action=agentes
+    ?action=rutas_search
+    ?action=routes
+*/
+
+// -----------------------------
+// ENDPOINT: agentes
+// -----------------------------
 if ($action === 'agentes') {
-  try {
-    $stmt = $pdo->query("SELECT idagente, nombre FROM agente ORDER BY nombre");
-    echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
+    header('Content-Type: application/json; charset=utf-8');
+    try {
+        $rows = $pdo->query("SELECT idagente, nombre FROM agente ORDER BY nombre")->fetchAll(PDO::FETCH_ASSOC);
+        echo json_encode($rows);
+    } catch (Throwable $e) {
+        http_response_code(500);
+        echo json_encode(['error' => $e->getMessage()]);
+    }
     exit;
-  } catch (Exception $e) {
-    http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
-    exit;
-  }
 }
 
-if ($action === 'routes') {
-  try {
-    // Filtros opcionales
-    $params = [];
-    $where  = [];
-
-    if (!empty($_GET['idruta'])) {
-      $where[] = 'r.idruta = :idruta';
-      $params[':idruta'] = (int)$_GET['idruta'];
-    }
-    if (!empty($_GET['agente'])) {
-      $where[] = 'r.idagente = :agente';
-      $params[':agente'] = (int)$_GET['agente'];
-    }
-
-    // estado: sin_problema, inconveniente, critico
-    if (!empty($_GET['estado'])) {
-      $estadoFilter = $_GET['estado'];
-    } else {
-      $estadoFilter = null;
-    }
-
-    // Consulta rutas con:
-    // - info de ruta/bus/encargado
-    // - último reporte (para estado e info)
-    // - suma acumulada de personas (solo reportes no críticos)
-    // - estimado total de personas (suma de paradas)
-    $sql = "
-                SELECT
-                    r.idruta,
-                    r.nombre        AS ruta_nombre,
-                    r.destino,
-                    r.flag_arrival,
-                    b.placa,
-                    b.capacidad_asientos AS bus_capacidad,
-                    er.nombre       AS encargado_nombre,
-
-                    -- Último reporte por ruta
-                    lr.total_personas    AS total_personas_ultimo,
-                    lr.total_becarios,
-                    lr.total_menores12,
-                    lr.fecha_reporte,
-                    lr.idaccion,
-                    a.nombre        AS accion_nombre,
-                    a.tipo_accion,
-
-                    -- Estimado total de personas
-                    est.estimado_total,
-
-                    -- Personas acumuladas (solo reportes no críticos)
-                    stats.total_personas_acum,
-                    ag.nombre AS agente_nombre
-                FROM ruta r
-                LEFT JOIN bus b ON b.idbus = r.idbus
-                left join agente ag on ag.idagente=r.idagente
-                LEFT JOIN encargado_ruta er ON er.idencargado_ruta = r.idencargado_ruta
-
-                -- Último registro de reporte por ruta
-                LEFT JOIN (
-                    SELECT rp1.*
-                    FROM reporte rp1
-                    INNER JOIN (
-                        SELECT idruta, MAX(fecha_reporte) AS mx
-                        FROM reporte
-                        GROUP BY idruta
-                    ) x ON rp1.idruta = x.idruta AND rp1.fecha_reporte = x.mx
-                ) lr ON lr.idruta = r.idruta
-
-                LEFT JOIN acciones a ON a.idaccion = lr.idaccion
-
-                -- Estimado de personas por ruta (suma de paradas)
-                LEFT JOIN (
-                    SELECT idruta, SUM(estimado_personas) AS estimado_total
-                    FROM paradas
-                    GROUP BY idruta
-                ) est ON est.idruta = r.idruta
-
-                -- Métricas acumuladas de personas (ignorando críticos)
-                LEFT JOIN (
-                    SELECT
-                        idruta,
-                        SUM(CASE WHEN critico = 0 THEN total_personas ELSE 0 END) AS total_personas_acum
-                    FROM reporte
-                    GROUP BY idruta
-                ) stats ON stats.idruta = r.idruta
-            ";
-
-    // Aplica filtros dinámicos ANTES del ORDER BY
-    if (!empty($where)) {
-      $sql .= ' WHERE ' . implode(' AND ', $where);
-    }
-
-    // Orden final
-    $sql .= ' ORDER BY r.idruta DESC';
-
-    $stmt = $pdo->prepare($sql);
-    foreach ($params as $k => $v) {
-      $stmt->bindValue($k, $v);
-    }
-    $stmt->execute();
-    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-    $out = [];
-    foreach ($rows as $r) {
-      // Clasificar estado según el último reporte
-      // 1) Si no hay fecha_reporte -> sin_reporte
-      // 2) Si hay reporte y idaccion existe -> mapear tipo_accion
-      // 3) Si hay reporte pero no hay accion -> sin_problema
-      if (empty($r['fecha_reporte'])) {
-        $status = 'sin_reporte';
-      } else {
-        // hay al menos un reporte
-        $tipo_raw = $r['tipo_accion'] ?? null;
-        $tipo = strtolower($tipo_raw ?? '');
-
-        if ($tipo === 'critico') {
-          $status = 'critico';
-        } elseif ($tipo === 'inconveniente') {
-          $status = 'inconveniente';
-        } else {
-          // reporte existe pero no hay acción o es otro valor -> sin_problema
-          $status = 'sin_problema';
+// -----------------------------
+// ENDPOINT: rutas_search (Select2)
+// -----------------------------
+if ($action === 'rutas_search') {
+    header('Content-Type: application/json; charset=utf-8');
+    try {
+        $q = trim($_GET['q'] ?? '');
+        $params = [];
+        $sql = "
+            SELECT r.idruta, r.nombre, r.destino, er.nombre AS encargado
+            FROM ruta r
+            LEFT JOIN encargado_ruta er ON er.idencargado_ruta = r.idencargado_ruta
+        ";
+        if ($q !== '') {
+            $sql .= " WHERE r.nombre LIKE :q OR r.destino LIKE :q OR er.nombre LIKE :q ";
+            $params[':q'] = "%$q%";
         }
-      }
+        $sql .= " ORDER BY r.nombre LIMIT 50";
 
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+        $results = array_map(function ($r) {
+            $label = $r['nombre'];
+            if (!empty($r['destino'])) $label .= " — ".$r['destino'];
+            if (!empty($r['encargado'])) $label .= " (".$r['encargado'].")";
+            return ["id" => $r["idruta"], "text" => $label];
+        }, $rows);
 
-
-      // Personas del último reporte
-      $personas_ultimo = isset($r['total_personas_ultimo'])
-        ? (int)$r['total_personas_ultimo']
-        : 0;
-
-      // Personas acumuladas en la ruta (si no hay acumulado, usamos el último como fallback)
-      $personas_acum = isset($r['total_personas_acum'])
-        ? (int)$r['total_personas_acum']
-        : $personas_ultimo;
-
-      $estimado_total = isset($r['estimado_total']) ? (int)$r['estimado_total'] : 0;
-      $bus_capacidad  = isset($r['bus_capacidad']) ? (int)$r['bus_capacidad'] : 0;
-
-      // % cumplimiento sobre estimado de paradas (usamos personas acumuladas)
-      $pct_cumpl = null;
-      if ($estimado_total > 0) {
-        $pct_cumpl = round(($personas_acum / $estimado_total) * 100, 1);
-      }
-
-      // % uso sobre capacidad del bus (también con acumulado)
-      $pct_uso = null;
-      if ($bus_capacidad > 0) {
-        $pct_uso = round(($personas_acum / $bus_capacidad) * 100, 1);
-      }
-
-      $row = [
-        'idruta'          => (int)$r['idruta'],
-        'ruta_nombre'     => $r['ruta_nombre'],
-        'destino'         => $r['destino'],
-        'flag_arrival'    => (int)$r['flag_arrival'],
-        'placa'           => $r['placa'],
-        'encargado'       => $r['encargado_nombre'],
-        // Personas del último reporte (lo que muestra la tarjeta)
-        'total_personas'  => $personas_ultimo,
-        // Personas acumuladas en la ruta (por si luego quieres usarlo en front)
-        'total_personas_acumuladas' => $personas_acum,
-        'estimado_total'  => $estimado_total,
-        'bus_capacidad'   => $bus_capacidad,
-        'pct_cumpl'       => $pct_cumpl,
-        'pct_uso'         => $pct_uso,
-        'fecha_reporte'   => $r['fecha_reporte'],
-        'status'          => $status,
-        'accion_nombre'   => $r['accion_nombre'],
-      ];
-
-      // Filtro por estado (si se solicitó)
-      if ($estadoFilter && $estadoFilter !== $status) {
-        continue;
-      }
-
-      $out[] = $row;
+        echo json_encode(["results" => $results]);
+    } catch (Throwable $e) {
+        http_response_code(500);
+        echo json_encode(["error" => $e->getMessage()]);
     }
-
-    echo json_encode($out);
     exit;
-  } catch (Exception $e) {
-    http_response_code(500);
-    echo json_encode(['error' => 'Error en routes: ' . $e->getMessage()]);
-    exit;
-  }
 }
 
+// -----------------------------
+// ENDPOINT: routes (datos del dashboard)
+// -----------------------------
+if ($action === 'routes') {
+    header('Content-Type: application/json; charset=utf-8');
+    try {
+        $params = [];
+        $where  = [];
 
-// ---------------------------------------------------------------------
-// MODO PÁGINA HTML
-// ---------------------------------------------------------------------
-$pageTitle   = 'Dashboard de Rutas';
-$currentPage = 'dashboard_rutas';
+        if (!empty($_GET['idruta'])) {
+            $where[] = "r.idruta = :idruta";
+            $params[':idruta'] = $_GET['idruta'];
+        }
+        if (!empty($_GET['agente'])) {
+            $where[] = "r.idagente = :agente";
+            $params[':agente'] = $_GET['agente'];
+        }
 
+        $estadoFilter = $_GET['estado'] ?? null;
+
+        $sql = "
+            SELECT
+                r.idruta,
+                r.nombre AS ruta_nombre,
+                r.destino,
+                r.flag_arrival,
+                b.placa,
+                b.capacidad_asientos AS bus_capacidad,
+                er.nombre AS encargado_nombre,
+
+                lr.total_personas AS total_personas_ultimo,
+                lr.fecha_reporte,
+                lr.idaccion,
+                a.tipo_accion,
+
+                est.estimado_total,
+                stats.total_personas_acum
+            FROM ruta r
+            LEFT JOIN bus b ON b.idbus = r.idbus
+            LEFT JOIN encargado_ruta er ON er.idencargado_ruta = r.idencargado_ruta
+
+            LEFT JOIN (
+                SELECT rp1.*
+                FROM reporte rp1
+                INNER JOIN (
+                    SELECT idruta, MAX(fecha_reporte) mx
+                    FROM reporte GROUP BY idruta
+                ) z ON rp1.idruta=z.idruta AND rp1.fecha_reporte=z.mx
+            ) lr ON lr.idruta=r.idruta
+
+            LEFT JOIN acciones a ON a.idaccion = lr.idaccion
+
+            LEFT JOIN (
+                SELECT idruta, SUM(estimado_personas) estimado_total
+                FROM paradas GROUP BY idruta
+            ) est ON est.idruta=r.idruta
+
+            LEFT JOIN (
+                SELECT idruta,
+                    SUM(CASE WHEN critico=0 THEN total_personas ELSE 0 END) total_personas_acum
+                FROM reporte GROUP BY idruta
+            ) stats ON stats.idruta=r.idruta
+        ";
+
+        if ($where) $sql .= " WHERE ".implode(" AND ", $where);
+        $sql .= " ORDER BY r.idruta DESC";
+
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $out = [];
+        foreach ($rows as $r) {
+            if (empty($r['fecha_reporte'])) $status = 'sin_reporte';
+            else {
+                $tipo = strtolower($r['tipo_accion'] ?? '');
+                if ($tipo === 'critico') $status = 'critico';
+                elseif ($tipo === 'inconveniente') $status = 'inconveniente';
+                else $status = 'sin_problema';
+            }
+
+            if ($estadoFilter && $estadoFilter !== $status) continue;
+
+            $personas_ultimo = (int)($r['total_personas_ultimo'] ?? 0);
+            $personas_acum   = (int)($r['total_personas_acum'] ?? $personas_ultimo);
+            $estimado        = (int)($r['estimado_total'] ?? 0);
+            $capacidad       = (int)($r['bus_capacidad'] ?? 0);
+
+            $pct_cumpl = $estimado > 0 ? round($personas_acum / $estimado * 100, 1) : null;
+            $pct_uso   = $capacidad > 0 ? round($personas_acum / $capacidad * 100, 1) : null;
+
+            $out[] = [
+                "idruta" => (int)$r["idruta"],
+                "ruta_nombre" => $r["ruta_nombre"],
+                "destino" => $r["destino"],
+                "flag_arrival" => (int)$r["flag_arrival"],
+                "placa" => $r["placa"],
+                "encargado" => $r["encargado_nombre"],
+                "total_personas" => $personas_ultimo,
+                "estimado_total" => $estimado,
+                "bus_capacidad" => $capacidad,
+                "pct_cumpl" => $pct_cumpl,
+                "pct_uso" => $pct_uso,
+                "fecha_reporte" => $r["fecha_reporte"],
+                "status" => $status
+            ];
+        }
+
+        echo json_encode($out);
+    } catch (Throwable $e) {
+        http_response_code(500);
+        echo json_encode(["error" => $e->getMessage()]);
+    }
+    exit;
+}
+
+// -----------------------------
+// HTML (página)
+// -----------------------------
+$pageTitle = "Dashboard de Rutas";
+$currentPage = "dashboard_rutas";
 require __DIR__ . '/../templates/header.php';
 ?>
 
 <!-- Content Header -->
 <section class="content-header">
   <div class="container-fluid">
-    <div class="row mb-2">
+    <div class="row mb-2 align-items-center">
       <div class="col-sm-6">
-        <h1>Dashboard de Rutas</h1>
-        <p class="text-muted mb-0">Resumen de cumplimiento y uso de capacidad por ruta.</p>
+        <h1>Centro de Monitoreo — Dashboard de Rutas</h1>
+        <p class="text-muted mb-0">Resumen en tiempo real — filtros dinámicos</p>
       </div>
-      <div class="col-sm-6 text-right">
+
+      <div class="col-sm-6">
         <div class="form-inline justify-content-end">
           <label class="mr-2">Estado:</label>
           <select id="filtroEstado" class="form-control form-control-sm mr-2">
             <option value="">Todos</option>
-            <option value="sin_problema">Sin problema</option>
+            <option value="sin_reporte">Sin Reporte</option>
+            <option value="sin_problema">Sin Problema</option>
             <option value="inconveniente">Inconveniente</option>
             <option value="critico">Crítico</option>
-            <option value="sin_reporte">Sin Reporte</option>
           </select>
 
           <label class="mr-2">Agente:</label>
@@ -242,10 +213,10 @@ require __DIR__ . '/../templates/header.php';
             <option value="">Todos</option>
           </select>
 
-          <button id="btnRefresh" class="btn btn-sm btn-primary" style="display: none;">
-            <i class="fas fa-sync-alt mr-1"></i> Actualizar
-          </button>
-
+          <label class="mr-2">Ruta:</label>
+          <select id="filtroRuta" class="form-control form-control-sm" style="width:260px;">
+            <option value="">Todas las rutas</option>
+          </select>
         </div>
       </div>
     </div>
@@ -256,386 +227,378 @@ require __DIR__ . '/../templates/header.php';
 <section class="content">
   <div class="container-fluid">
 
-    <!-- Resumen de KPIs -->
-    <div class="row">
+    <!-- KPIs -->
+    <div class="row mb-3" id="kpiRow">
       <div class="col-md-2">
         <div class="small-box bg-white">
           <div class="inner">
             <p class="text-muted mb-1">Total rutas</p>
             <h3 id="kpi_total_rutas">0</h3>
           </div>
-          <div class="icon">
-            <i class="fas fa-route"></i>
-          </div>
+          <div class="icon"><i class="fas fa-route"></i></div>
         </div>
       </div>
+
       <div class="col-md-2">
         <div class="small-box bg-white">
           <div class="inner">
             <p class="text-muted mb-1">Rutas activas</p>
             <h3 id="kpi_rutas_activas">0</h3>
           </div>
-          <div class="icon">
-            <i class="fas fa-bus-alt"></i>
-          </div>
+          <div class="icon"><i class="fas fa-bus-alt"></i></div>
         </div>
       </div>
+
       <div class="col-md-2">
         <div class="small-box bg-white">
           <div class="inner">
             <p class="text-muted mb-1">Sin Reporte</p>
-            <h3 class="text-success" id="kpi_sin_reporte">0</h3>
+            <h3 class="text-info" id="kpi_sin_reporte">0</h3>
           </div>
-          <div class="icon">
-            <i class="fas fa-check-circle"></i>
-          </div>
+          <div class="icon"><i class="fas fa-clock"></i></div>
         </div>
       </div>
+
       <div class="col-md-2">
         <div class="small-box bg-white">
           <div class="inner">
             <p class="text-muted mb-1">Sin problema</p>
             <h3 class="text-success" id="kpi_sin_problema">0</h3>
           </div>
-          <div class="icon">
-            <i class="fas fa-check-circle"></i>
-          </div>
+          <div class="icon"><i class="fas fa-check-circle"></i></div>
         </div>
       </div>
+
       <div class="col-md-2">
         <div class="small-box bg-white">
           <div class="inner">
             <p class="text-muted mb-1">Inconveniente</p>
             <h3 class="text-warning" id="kpi_inconveniente">0</h3>
           </div>
-          <div class="icon">
-            <i class="fas fa-exclamation-circle"></i>
-          </div>
+          <div class="icon"><i class="fas fa-exclamation-circle"></i></div>
         </div>
       </div>
+
       <div class="col-md-2">
         <div class="small-box bg-white">
           <div class="inner">
             <p class="text-muted mb-1">Crítico</p>
             <h3 class="text-danger" id="kpi_critico">0</h3>
           </div>
-          <div class="icon">
-            <i class="fas fa-exclamation-triangle"></i>
-          </div>
+          <div class="icon"><i class="fas fa-exclamation-triangle"></i></div>
         </div>
       </div>
     </div>
 
-    <!-- Gráficas ECharts -->
+    <!-- Charts -->
     <div class="row">
       <div class="col-lg-6">
-        <div class="card">
-          <div class="card-header">
-            <h3 class="card-title">% Cumplimiento vs estimado por ruta</h3>
-          </div>
-          <div class="card-body">
-            <div id="chartCumplimiento" style="width:100%;height:320px;"></div>
-          </div>
+        <div class="card mb-3">
+          <div class="card-header"><h3 class="card-title">Personas: Último vs Estimado</h3></div>
+          <div class="card-body"><div id="chartPersons" style="height:280px"></div></div>
         </div>
       </div>
+
       <div class="col-lg-6">
-        <div class="card">
-          <div class="card-header">
-            <h3 class="card-title">% Uso de capacidad de bus</h3>
-          </div>
-          <div class="card-body">
-            <div id="chartUsoBus" style="width:100%;height:320px;"></div>
-          </div>
+        <div class="card mb-3">
+          <div class="card-header"><h3 class="card-title">Estado de rutas</h3></div>
+          <div class="card-body"><div id="chartStatus" style="height:280px"></div></div>
         </div>
       </div>
     </div>
 
-    <!-- Cards de rutas -->
-    <div class="row" id="cardsContainer">
-      <!-- Aquí se inyectan las tarjetas dinámicamente -->
+    <!-- Cards (paginated) -->
+    <div class="row" id="cardsContainer"></div>
+
+    <div class="row mt-3">
+      <div class="col-12" id="paginationArea"></div>
     </div>
 
-  </div><!-- /.container-fluid -->
+  </div>
 </section>
 
-<!-- Scripts específicos -->
+<!-- Libs -->
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+
 <script>
-  const apiBase = location.pathname + '?action=';
+/* -------------------------
+   Utilidades y estado
+   ------------------------- */
+const apiBase = location.pathname + '?action=';
+function fmtNumber(n){ return (n||0).toLocaleString(); }
+function fmtPercent(p){ return p===null ? '-' : (p.toFixed ? p.toFixed(1)+'%' : p+'%'); }
+function statusBadge(status){
+  if(status==='sin_reporte') return '<span class="badge badge-info">Sin reporte</span>';
+  if(status==='sin_problema') return '<span class="badge badge-success">Sin problema</span>';
+  if(status==='inconveniente') return '<span class="badge badge-warning">Inconveniente</span>';
+  if(status==='critico') return '<span class="badge badge-danger">Crítico</span>';
+  return '<span class="badge badge-secondary">—</span>';
+}
 
-  function fmtNumber(n) {
-    return (n || 0).toLocaleString();
-  }
-
-  function fmtPercent(p) {
-    if (p === null || p === undefined) return '-';
-    return p.toFixed ? p.toFixed(1) + '%' : p + '%';
-  }
-
-  async function fetchRoutes() {
-    const estado = document.getElementById('filtroEstado').value || '';
-    const agente = document.getElementById('filtroAgente').value || '';
-
-    let url = apiBase + 'routes';
-
-    if (estado) url += '&estado=' + encodeURIComponent(estado);
-    if (agente) url += '&agente=' + encodeURIComponent(agente);
-
-    const res = await fetch(url);
-    if (!res.ok) throw new Error('Error al cargar rutas');
-    return res.json();
-  }
-
-
-  let chartCumplimiento = null;
-  let chartUsoBus = null;
-
-  function buildCharts(routes) {
-    // Filtrar solo rutas con pct_cumpl / pct_uso no nulo
-    const rutasConCumpl = routes.filter(r => r.pct_cumpl !== null);
-    const rutasConUso = routes.filter(r => r.pct_uso !== null);
-
-    const labelsCumpl = rutasConCumpl.map(r => r.ruta_nombre);
-    const dataCumpl = rutasConCumpl.map(r => r.pct_cumpl);
-
-    const labelsUso = rutasConUso.map(r => r.ruta_nombre);
-    const dataUso = rutasConUso.map(r => r.pct_uso);
-
-    // --- Gráfica de cumplimiento ---
-    if (!chartCumplimiento) {
-      chartCumplimiento = echarts.init(document.getElementById('chartCumplimiento'));
+/* -------------------------
+   Select2 rutas remoto
+   ------------------------- */
+function initSelect2Rutas(){
+  $('#filtroRuta').select2({
+    placeholder: "Buscar ruta…",
+    allowClear: true,
+    width: '260px',
+    ajax: {
+      url: apiBase + 'rutas_search',
+      dataType: 'json',
+      delay: 250,
+      data: params => ({ q: params.term || '' }),
+      processResults: data => data,
+      cache: true
+    },
+    language: {
+      noResults: () => "No se encontraron rutas",
+      searching: () => "Buscando…"
     }
-    chartCumplimiento.setOption({
-      tooltip: {
-        trigger: 'axis',
-        formatter: params => {
-          const p = params[0];
-          return `${p.name}<br/>Cumplimiento: ${p.value}%`;
-        }
-      },
-      grid: {
-        left: 120,
-        right: 20,
-        top: 20,
-        bottom: 30
-      },
-      xAxis: {
-        type: 'value',
-        min: 0,
-        max: 120
-      },
-      yAxis: {
-        type: 'category',
-        data: labelsCumpl
-      },
-      series: [{
-        type: 'bar',
-        data: dataCumpl,
-        label: {
-          show: true,
-          position: 'right',
-          formatter: '{c}%'
-        }
-      }]
+  });
+}
+
+/* -------------------------
+   Cargar agentes
+   ------------------------- */
+async function cargarAgentes(){
+  try {
+    const res = await fetch(apiBase + 'agentes');
+    const rows = await res.json();
+    const sel = document.getElementById('filtroAgente');
+    sel.innerHTML = '<option value="">Todos</option>';
+    rows.forEach(r => {
+      const o = document.createElement('option');
+      o.value = r.idagente;
+      o.textContent = r.nombre;
+      sel.appendChild(o);
     });
+  } catch (e) {
+    console.error('Error cargando agentes', e);
+  }
+}
 
-    // --- Gráfica de uso de bus ---
-    if (!chartUsoBus) {
-      chartUsoBus = echarts.init(document.getElementById('chartUsoBus'));
-    }
-    chartUsoBus.setOption({
-      tooltip: {
-        trigger: 'axis',
-        formatter: params => {
-          const p = params[0];
-          return `${p.name}<br/>Uso bus: ${p.value}%`;
-        }
-      },
-      grid: {
-        left: 120,
-        right: 20,
-        top: 20,
-        bottom: 30
-      },
-      xAxis: {
-        type: 'value',
-        min: 0,
-        max: 120
-      },
-      yAxis: {
-        type: 'category',
-        data: labelsUso
-      },
-      series: [{
-        type: 'bar',
-        data: dataUso,
-        label: {
-          show: true,
-          position: 'right',
-          formatter: '{c}%'
-        }
-      }]
-    });
+/* -------------------------
+   Fetch routes (dashboard data)
+   ------------------------- */
+async function fetchRoutes(){
+  const estado = document.getElementById('filtroEstado').value || '';
+  const agente = document.getElementById('filtroAgente').value || '';
+  const idruta = document.getElementById('filtroRuta').value || '';
+
+  let url = apiBase + 'routes';
+  if (estado) url += '&estado=' + encodeURIComponent(estado);
+  if (agente) url += '&agente=' + encodeURIComponent(agente);
+  if (idruta) url += '&idruta=' + encodeURIComponent(idruta);
+
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Error fetching routes');
+  return res.json();
+}
+
+/* -------------------------
+   Charts (ECharts)
+   ------------------------- */
+let chartPersons = null;
+let chartStatus  = null;
+function renderCharts(routes){
+  const totalPersonas = routes.reduce((s,r)=> s + (r.total_personas||0), 0);
+  const totalEstimado = routes.reduce((s,r)=> s + (r.estimado_total||0), 0);
+
+  // Persons chart
+  if(!chartPersons) chartPersons = echarts.init(document.getElementById('chartPersons'));
+  const optPersons = {
+    tooltip: { trigger: 'axis' },
+    xAxis: { type: 'category', data: ['En reporte (sum)','Estimado (sum)'] },
+    yAxis: { type: 'value' },
+    series: [{
+      type: 'bar',
+      data: [ totalPersonas, totalEstimado ],
+      label: { show: true, position: 'top' }
+    }]
+  };
+  chartPersons.setOption(optPersons);
+
+  // Status pie
+  if(!chartStatus) chartStatus = echarts.init(document.getElementById('chartStatus'));
+  const counts = { sin_problema:0, inconveniente:0, critico:0, sin_reporte:0 };
+  routes.forEach(r => counts[r.status] = (counts[r.status]||0) + 1);
+  const optStatus = {
+    tooltip: { trigger: 'item' },
+    legend: { bottom: 0 },
+    series: [{
+      type: 'pie',
+      radius: ['40%','70%'],
+      label: { formatter: '{b}: {c}' },
+      data: [
+        { value: counts.sin_problema, name: 'Sin problema' },
+        { value: counts.inconveniente, name: 'Inconveniente' },
+        { value: counts.critico, name: 'Crítico' },
+        { value: counts.sin_reporte, name: 'Sin reporte' }
+      ],color: ['#25d506ff', '#ffc107', '#fc031bff', '#1e15d4ff']
+    }]
+  };
+  chartStatus.setOption(optStatus);
+}
+
+/* -------------------------
+   Cards + Paginación
+   ------------------------- */
+let lastRoutes = [];
+let page = 1;
+const pageSize = 12;
+
+function paginate(arr, pageNum, pageSize){
+  const start = (pageNum-1)*pageSize;
+  return arr.slice(start, start+pageSize);
+}
+
+function buildPagination(totalItems){
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const container = document.getElementById('paginationArea');
+  if (totalPages <= 1) { container.innerHTML = ''; return; }
+
+  let html = `<nav><ul class="pagination justify-content-center">`;
+  html += `<li class="page-item ${page === 1 ? 'disabled' : ''}"><a class="page-link" href="#" onclick="goPage(${page-1});return false;">Anterior</a></li>`;
+
+  const maxShown = 7;
+  let start = Math.max(1, page - 3);
+  let end = Math.min(totalPages, start + maxShown - 1);
+  if (end - start < maxShown) start = Math.max(1, end - maxShown + 1);
+
+  for (let i = start; i <= end; i++) {
+    html += `<li class="page-item ${i === page ? 'active' : ''}"><a class="page-link" href="#" onclick="goPage(${i});return false;">${i}</a></li>`;
   }
 
-  function buildKpis(routes) {
-    const total = routes.length;
-    let activas = 0;
-    let sinProb = 0;
-    let incon = 0;
-    let critico = 0;
-    let sinReporte = 0;
+  html += `<li class="page-item ${page === totalPages ? 'disabled' : ''}"><a class="page-link" href="#" onclick="goPage(${page+1});return false;">Siguiente</a></li>`;
+  html += `</ul></nav>`;
+  container.innerHTML = html;
+}
 
-    routes.forEach(r => {
-      if (r.flag_arrival === 0) activas++;
-      if (r.status === 'sin_problema') sinProb++;
-      else if (r.status === 'inconveniente') incon++;
-      else if (r.status === 'critico') critico++;
-      else if (r.status === 'sin_reporte') sinReporte++;
-    });
+window.goPage = function(p){
+  const totalPages = Math.max(1, Math.ceil(lastRoutes.length / pageSize));
+  if (p < 1 || p > totalPages) return;
+  page = p;
+  renderCards();
+};
 
-    document.getElementById('kpi_total_rutas').textContent = fmtNumber(total);
-    document.getElementById('kpi_rutas_activas').textContent = fmtNumber(activas);
-    document.getElementById('kpi_sin_problema').textContent = fmtNumber(sinProb);
-    document.getElementById('kpi_inconveniente').textContent = fmtNumber(incon);
-    document.getElementById('kpi_critico').textContent = fmtNumber(critico);
-    document.getElementById('kpi_sin_reporte').textContent = fmtNumber(sinReporte);
+function renderCards(){
+  const container = document.getElementById('cardsContainer');
+  container.innerHTML = '';
+  if (!lastRoutes.length) {
+    container.innerHTML = '<div class="col-12 text-center text-muted">No hay rutas que coincidan con el filtro.</div>';
+    buildPagination(0);
+    return;
   }
 
-  function statusBadge(status) {
-    let cls = 'badge-secondary';
-    let txt = 'Sin datos';
-    if (status === 'sin_problema') {
-      cls = 'badge-success';
-      txt = 'Sin problema';
-    } else if (status === 'inconveniente') {
-      cls = 'badge-warning';
-      txt = 'Inconveniente';
-    } else if (status === 'critico') {
-      cls = 'badge-danger';
-      txt = 'Crítico';
-    } else if (status === 'sin_reporte') {
-      cls = 'badge-info';
-      txt = 'Sin reporte';
-    }
-    return `<span class="badge ${cls}">${txt}</span>`;
-  }
-
-  function buildCards(routes) {
-    const container = document.getElementById('cardsContainer');
-    container.innerHTML = '';
-
-    if (!routes.length) {
-      container.innerHTML = '<div class="col-12"><em>No hay rutas que coincidan con el filtro.</em></div>';
-      return;
-    }
-
-    routes.forEach(r => {
-      const pctCumpl = r.pct_cumpl !== null ? r.pct_cumpl : 0;
-      const pctUso = r.pct_uso !== null ? r.pct_uso : 0;
-
-      const card = document.createElement('div');
-      card.className = 'col-md-6 col-lg-4';
-
-      card.innerHTML = `
-      <div class="card h-100">
-        <div class="card-header">
-          <h3 class="card-title" style="font-size:1rem;">
-            ${r.ruta_nombre || 'Ruta ' + r.idruta}
-          </h3>
-          <div class="card-tools">
-            ${statusBadge(r.status)}
+  const pageItems = paginate(lastRoutes, page, pageSize);
+  pageItems.forEach(r => {
+    container.insertAdjacentHTML('beforeend', `
+      <div class="col-md-6 col-lg-4">
+        <div class="card h-100">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <div style="font-weight:600">${r.ruta_nombre}</div>
+            <div>${statusBadge(r.status)}</div>
           </div>
-        </div>
-        <div class="card-body">
-          <p class="mb-1">
-            <strong>Destino:</strong> ${r.destino || '-'}
-          </p>
-          <p class="mb-1">
-            <strong>Bus:</strong> ${r.placa || '-'}
-          </p>
-          <p class="mb-2">
-            <strong>Encargado:</strong> ${r.encargado || '-'}
-          </p>
+          <div class="card-body">
+            <p class="mb-1"><strong>Destino:</strong> ${r.destino || '-'}</p>
+            <p class="mb-1"><strong>Bus:</strong> ${r.placa || '-'}</p>
+            <p class="mb-1"><strong>Encargado:</strong> ${r.encargado || '-'}</p>
 
-          <div class="progress-group">
-            % Cumplimiento estimado
-            <span class="float-right"><b>${fmtPercent(pctCumpl)}</b></span>
-            <div class="progress progress-sm">
-              <div class="progress-bar bg-info" style="width: ${Math.min(pctCumpl,120)}%"></div>
+            <div class="progress-group mt-3">
+              <div class="d-flex justify-content-between">
+                <small>% Cumplimiento</small><small><b>${fmtPercent(r.pct_cumpl)}</b></small>
+              </div>
+              <div class="progress progress-sm">
+                <div class="progress-bar" role="progressbar" style="width:${Math.min(r.pct_cumpl||0,120)}%"></div>
+              </div>
             </div>
-          </div>
 
-          <div class="progress-group mt-2">
-            % Uso de capacidad de bus
-            <span class="float-right"><b>${fmtPercent(pctUso)}</b></span>
-            <div class="progress progress-sm">
-              <div class="progress-bar bg-success" style="width: ${Math.min(pctUso,120)}%"></div>
+            <div class="progress-group mt-2">
+              <div class="d-flex justify-content-between">
+                <small>% Uso bus</small><small><b>${fmtPercent(r.pct_uso)}</b></small>
+              </div>
+              <div class="progress progress-sm">
+                <div class="progress-bar bg-success" role="progressbar" style="width:${Math.min(r.pct_uso||0,120)}%"></div>
+              </div>
             </div>
-          </div>
 
-          <p class="mt-2 mb-0 small text-muted">
-            Personas últimas: <strong>${fmtNumber(r.total_personas || 0)}</strong> /
-            Estimado total: <strong>${fmtNumber(r.estimado_total || 0)}</strong><br>
-            Capacidad bus: <strong>${fmtNumber(r.bus_capacidad || 0)}</strong><br>
-            Último reporte: <strong>${r.fecha_reporte || '-'}</strong>
-          </p>
-        </div>
-        <div class="card-footer text-right">
-          <a href="<?= BASE_URL ?>/dashboard/detalle_ruta.php?idruta=${r.idruta}" class="btn btn-sm btn-outline-primary">
-            <i class="fas fa-eye mr-1"></i> Ver detalle
-          </a>
+            <p class="small text-muted mt-2 mb-0">
+              Personas últimas: <b>${fmtNumber(r.total_personas)}</b><br>
+              Estimado total: <b>${fmtNumber(r.estimado_total)}</b><br>
+              Capacidad bus: <b>${fmtNumber(r.bus_capacidad)}</b><br>
+              Último reporte: ${r.fecha_reporte || '-'}
+            </p>
+          </div>
+          <div class="card-footer text-right">
+            <a class="btn btn-sm btn-outline-primary" href="<?= BASE_URL ?>/dashboard/detalle_ruta.php?idruta=${r.idruta}">Ver detalle</a>
+          </div>
         </div>
       </div>
-    `;
-
-      container.appendChild(card);
-    });
-  }
-  async function cargarAgentes() {
-    try {
-      const res = await fetch(apiBase + 'agentes');
-      const agentes = await res.json();
-      const sel = document.getElementById('filtroAgente');
-
-      agentes.forEach(a => {
-        const opt = document.createElement('option');
-        opt.value = a.idagente;
-        opt.textContent = a.nombre;
-        sel.appendChild(opt);
-      });
-    } catch (e) {
-      console.error("Error cargando agentes", e);
-    }
-  }
-
-  document.getElementById('filtroAgente').addEventListener('change', renderRoutes);
-
-  document.addEventListener('DOMContentLoaded', () => {
-    cargarAgentes();
-    renderRoutes();
+    `);
   });
 
-  async function renderRoutes() {
-    try {
-      const routes = await fetchRoutes();
-      buildKpis(routes);
-      buildCharts(routes);
-      buildCards(routes);
-    } catch (err) {
-      console.error(err);
-    }
-  }
+  buildPagination(lastRoutes.length);
+}
 
-  // Redimensionar ECharts al cambiar tamaño ventana
+/* -------------------------
+   KPIs
+   ------------------------- */
+function renderKpis(routes){
+  document.getElementById('kpi_total_rutas').textContent = fmtNumber(routes.length);
+  let activas=0, sin_rep=0, sin_prob=0, inc=0, crit=0;
+  routes.forEach(r => {
+    if (r.flag_arrival === 0) activas++;
+    if (r.status === 'sin_reporte') sin_rep++;
+    else if (r.status === 'sin_problema') sin_prob++;
+    else if (r.status === 'inconveniente') inc++;
+    else if (r.status === 'critico') crit++;
+  });
+  document.getElementById('kpi_rutas_activas').textContent = fmtNumber(activas);
+  document.getElementById('kpi_sin_reporte').textContent = fmtNumber(sin_rep);
+  document.getElementById('kpi_sin_problema').textContent = fmtNumber(sin_prob);
+  document.getElementById('kpi_inconveniente').textContent = fmtNumber(inc);
+  document.getElementById('kpi_critico').textContent = fmtNumber(crit);
+}
+
+/* -------------------------
+   Render general
+   ------------------------- */
+async function renderAll(){
+  page = 1;
+  try {
+    const routes = await fetchRoutes();
+    lastRoutes = Array.isArray(routes) ? routes : [];
+    renderKpis(lastRoutes);
+    renderCharts(lastRoutes);
+    renderCards();
+  } catch (e) {
+    console.error('Error renderAll', e);
+  }
+}
+
+/* -------------------------
+   Init
+   ------------------------- */
+async function initDashboard(){
+  initSelect2Rutas();
+  await cargarAgentes();
+  await renderAll();
+  // listeners
+  document.getElementById('filtroEstado').addEventListener('change', renderAll);
+  document.getElementById('filtroAgente').addEventListener('change', renderAll);
+  $('#filtroRuta').on('change', renderAll);
+
+  // resize charts on window resize
   window.addEventListener('resize', () => {
-    if (chartCumplimiento) chartCumplimiento.resize();
-    if (chartUsoBus) chartUsoBus.resize();
+    if (chartPersons) chartPersons.resize();
+    if (chartStatus) chartStatus.resize();
   });
+}
 
-  document.getElementById('btnRefresh').addEventListener('click', renderRoutes);
-  document.getElementById('filtroEstado').addEventListener('change', renderRoutes);
-
- 
+document.addEventListener('DOMContentLoaded', initDashboard);
 </script>
 
 <?php
