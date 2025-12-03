@@ -37,14 +37,21 @@ $nextStep = null;
 // ==================
 // Helpers / Datos base
 // ==================
-function etiquetaTipoAccion(string $tipo): string {
+function etiquetaTipoAccion(string $tipo): string
+{
     switch (strtolower($tipo)) {
-        case 'ruta':       return 'Reporte de Ruta';
-        case 'incidencia': return 'Reporte de Incidencia';
-        case 'emergencia': return 'Reporte de Emergencia';
-        case 'asistencia': return 'Necesito Asistencia';
-        case 'vehiculo':   return 'Reporte del estado del vehículo';
-        case 'otro':       return 'Otro';
+        case 'ruta':
+            return 'Reporte de Ruta';
+        case 'incidencia':
+            return 'Reporte de Incidencia';
+        case 'emergencia':
+            return 'Reporte de Emergencia';
+        case 'asistencia':
+            return 'Necesito Asistencia';
+        case 'vehiculo':
+            return 'Reporte del estado del vehículo';
+        case 'otro':
+            return 'Otro';
         default:
             return ucfirst($tipo);
     }
@@ -54,7 +61,8 @@ $accionesRequierenPersonas = [
     'Salida del punto de inicio',
     'Abordaje de personas',
 ];
-function accionRequierePersonas(?string $nombreAccion, array $lista): bool {
+function accionRequierePersonas(?string $nombreAccion, array $lista): bool
+{
     if (!$nombreAccion) return false;
     $nombre = mb_strtolower($nombreAccion, 'UTF-8');
     foreach ($lista as $needle) {
@@ -241,14 +249,21 @@ if ($formStep === 'primer_reporte' && $idAccionSalida) {
                 WHERE idruta = :idruta
             ");
             $stmtActiva->execute([':idruta' => $idruta]);
-
+            // 3) Activar actualizar personas que suben al bus en la parada si la accion lo requiere
+            if ($idAccionSalida = 2 || $idAccionSalida == 15) {
+                $stmtActiva = $pdo->prepare("
+                UPDATE paradas
+                SET atendido = :atendido
+                WHERE idparada = :idparada
+            ");
+                $stmtActiva->execute([':atendido' => 1, ':idparada' => $idParadaDefault]);
+            }
             $pdo->commit();
 
             // Para el frontend (respuesta JSON)
             $success            = true;
             $nextStep           = 'nuevo_reporte';
             $tienePrimerReporte = true;
-
         } catch (Throwable $e) {
             $pdo->rollBack();
             $errors[] = 'Error al guardar el primer reporte: ' . $e->getMessage();
@@ -300,12 +315,11 @@ if ($formStep === 'nuevo_reporte') {
                 ");
                 $stmtUpdate->execute([':idruta' => $idruta]);
             }
-            
+
             // Si todo fue bien, confirmamos los cambios
             $pdo->commit();
 
             $success = 'Reporte registrado correctamente.';
-
         } catch (Throwable $e) {
             $pdo->rollBack(); // Revertir cambios si algo falla
             $errors[] = 'Error al guardar el reporte: ' . $e->getMessage();
@@ -322,4 +336,3 @@ echo json_encode([
     'errors'   => $errors,
     'nextStep' => $nextStep,
 ]);
-?>

@@ -33,6 +33,16 @@ try {
     ]);
 
     $insertId = $pdo->lastInsertId();
+
+// Activar actualizar personas que suben al bus en la parada si la accion lo requiere
+            if ($idaccion == 2 || $idaccion == 15) {
+                $stmtActiva = $pdo->prepare("
+                UPDATE paradas
+                SET atendido = :atendido
+                WHERE idparada = :idparada
+            ");
+                $stmtActiva->execute([':atendido' => 1, ':idparada' => $idparada]);
+            }
     echo json_encode(['success' => true, 'message' => 'Reporte guardado correctamente', 'insert_id' => $insertId], JSON_UNESCAPED_UNICODE);
     exit;
 
