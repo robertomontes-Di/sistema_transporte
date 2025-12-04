@@ -8,6 +8,40 @@ $action = $_GET['action'] ?? null;
 // -----------------------------------------------------------------
 // ENDPOINTS AJAX
 // -----------------------------------------------------------------
+ 
+if ($action === 'filters') {
+  
+    try {
+        // Departamentos
+        $departamentos = $pdo->query("
+            SELECT DISTINCT departamento 
+            FROM paradas 
+            WHERE departamento IS NOT NULL AND departamento <> ''
+            ORDER BY departamento
+        ")->fetchAll(PDO::FETCH_COLUMN);
+
+       
+
+        // Rutas
+        $rutas = $pdo->query("
+            SELECT idruta, nombre 
+            FROM ruta 
+            ORDER BY idruta
+        ")->fetchAll(PDO::FETCH_ASSOC);
+
+        echo json_encode([
+            'success' => true,
+            'departamentos' => $departamentos,           
+            'rutas' => $rutas
+        ]);
+        exit();
+
+    } catch (Throwable $e) {
+        http_response_code(500);
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+        exit();
+    }
+}
 if ($action === 'stats') {
     try {
         // --------------------------------------------------------
@@ -675,9 +709,17 @@ window.addEventListener('resize', () => {
 let dataTable = null;
 async function renderRecentReports(){
   try {
-    const rows = await fetchRecentReports(50);
+    const resp = await fetchRecentReports(50);
+
+    if (!resp.ok || !Array.isArray(resp.data)) {
+      console.warn("Respuesta inesperada en recent_reports:", resp);
+      return;
+    }
+
+    const rows = resp.data;
     const tbody = $('#tblReports tbody');
     tbody.empty();
+
     rows.forEach((r, idx) => {
       const tr = $('<tr>');
       tr.append($('<td>').text(idx+1));
@@ -690,6 +732,7 @@ async function renderRecentReports(){
       tr.append($('<td>').text(r.fecha_reporte || ''));
       tbody.append(tr);
     });
+
     if (dataTable) dataTable.destroy();
     dataTable = $('#tblReports').DataTable({
       paging: true,
@@ -698,10 +741,12 @@ async function renderRecentReports(){
       pageLength: 10,
       order: [[7, 'desc']]
     });
+
   } catch (err) {
-    console.error(err);
+    console.error("Error renderRecentReports:", err);
   }
 }
+
 
 let mapInstance = null;
 let markers = [];

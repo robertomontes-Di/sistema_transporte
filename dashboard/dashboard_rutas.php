@@ -192,12 +192,12 @@ require __DIR__ . '/../templates/header.php';
 <section class="content-header">
   <div class="container-fluid">
     <div class="row mb-2 align-items-center">
-      <div class="col-sm-6">
+      <div class="col-sm-5">
         <h1>Centro de Monitoreo — Dashboard de Rutas</h1>
         <p class="text-muted mb-0">Resumen en tiempo real — filtros dinámicos</p>
       </div>
 
-      <div class="col-sm-6">
+      <div class="col-sm-7">
         <div class="form-inline justify-content-end">
           <label class="mr-2">Estado:</label>
           <select id="filtroEstado" class="form-control form-control-sm mr-2">
