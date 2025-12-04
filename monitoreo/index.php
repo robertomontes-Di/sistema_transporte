@@ -14,8 +14,8 @@ require_once __DIR__ . '/../includes/db.php';
 // Helpers
 // -----------------------------------------------------
 $accionesRequierePersonas = [
-    'Abordaje de personas',
-    'Salida del punto de inicio',
+    'abordaje de personas',
+    'salida del punto de inicio',
 ];
 
 function accionRequierePersonas(?string $nombreAccion, array $lista): bool {
@@ -27,18 +27,6 @@ function accionRequierePersonas(?string $nombreAccion, array $lista): bool {
         }
     }
     return false;
-}
-// Cargar todas las rutas (solo id + nombre)
-try {
-    $stmt = $pdo->query("
-        SELECT r.idruta, r.nombre, r.destino, er.nombre AS encargado
-        FROM ruta r
-        LEFT JOIN encargado_ruta er ON er.idencargado_ruta = r.idencargado_ruta
-        ORDER BY r.nombre ASC
-    ");
-    $rutas = $stmt->fetchAll(PDO::FETCH_ASSOC);
-} catch (Throwable $e) {
-    $rutas = [];
 }
 
 // -----------------------------------------------------
@@ -252,26 +240,26 @@ foreach ($acciones as $a) {
 $accionesIncidente = array_merge($accionesCritico, $accionesInconveniente);
 
 // Rutas + encargado
-// $rutas = [];
-// try {
-//     $sqlRutas = "
-//         SELECT
-//             r.idruta,
-//             r.nombre AS ruta_nombre,
-//             er.idencargado_ruta,
-//             er.nombre AS encargado_nombre,
-//             er.telefono
-//         FROM ruta r
-//         LEFT JOIN encargado_ruta er
-//           ON er.idencargado_ruta = r.idencargado_ruta
-//         ORDER BY r.nombre
-//     ";
-//     $stmtR = $pdo->query($sqlRutas);
-//     $rutas = $stmtR->fetchAll(PDO::FETCH_ASSOC);
-// } catch (Throwable $e) {
-//     $rutas = [];
-// }
-require "../templates/header.php";
+$rutas = [];
+try {
+    $sqlRutas = "
+        SELECT
+            r.idruta,
+            r.nombre AS ruta_nombre,
+            er.idencargado_ruta,
+            er.nombre AS encargado_nombre,
+            er.telefono
+        FROM ruta r
+        LEFT JOIN encargado_ruta er
+          ON er.idencargado_ruta = r.idencargado_ruta
+        ORDER BY r.nombre
+    ";
+    $stmtR = $pdo->query($sqlRutas);
+    $rutas = $stmtR->fetchAll(PDO::FETCH_ASSOC);
+} catch (Throwable $e) {
+    $rutas = [];
+}
+
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -283,8 +271,6 @@ require "../templates/header.php";
     <!-- Bootstrap 4 -->
     <link rel="stylesheet"
           href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
-          <!-- Select2 CSS -->
-<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
 
     <style>
         body {
@@ -300,16 +286,6 @@ require "../templates/header.php";
         }
         .card-header {
             font-weight: 600;
-        }
-        .select2-container .select2-selection--single {
-    height: 38px !important;
-    padding: 4px !important;
-        }
-        .select2-selection__rendered {
-            line-height: 28px !important;
-        }
-        .select2-selection__arrow {
-            height: 34px !important;
         }
     </style>
 </head>
@@ -339,20 +315,16 @@ require "../templates/header.php";
                         <input type="hidden" name="idaccion" id="idaccion_real" value="">
 
                         <!-- Ruta -->
-                          <div class="form-group">
-                        <label for="idruta">Ruta</label>
-                        <select id="idruta" name="idruta" class="form-control" required>
-                            <option value="">Seleccione una ruta…</option>
-                            <?php foreach ($rutas as $r): ?>
-                            <option value="<?= $r['idruta'] ?>">
-                                <?= htmlspecialchars($r['nombre']) ?> —
-                                <?= htmlspecialchars($r['destino']) ?>
-                                <?php if ($r['encargado']): ?>
-                                (<?= htmlspecialchars($r['encargado']) ?>)
-                                <?php endif; ?>
-                            </option>
-                            <?php endforeach; ?>
-                        </select>
+                        <div class="form-group">
+                            <label for="ruta_reporte">Ruta</label>
+                            <select name="idruta" id="ruta_reporte" class="form-control" required>
+                                <option value="">Seleccione una ruta…</option>
+                                <?php foreach ($rutas as $r): ?>
+                                    <option value="<?= (int)$r['idruta'] ?>">
+                                        <?= htmlspecialchars($r['ruta_nombre']) ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
                         </div>
 
                         <!-- Tipo de reporte -->
@@ -402,7 +374,12 @@ require "../templates/header.php";
                         <!-- Total personas -->
                         <div class="form-group">
                             <label for="total_personas">Total de personas (solo cuando aplique)</label>
-                            <input type="number" id="total_personas" name="total_personas" min="0" disabled>
+                            <input type="number"
+                                   name="total_personas"
+                                   id="total_personas"
+                                   class="form-control"
+                                   min="0"
+                                   disabled>
                             <small class="form-text text-muted">
                                 Solo se habilita para acciones como “Salida hacia el estadio” o “Salida de parada”.
                             </small>
@@ -436,20 +413,18 @@ require "../templates/header.php";
                 <div class="card-body">
                     <form id="formEncargado" autocomplete="off">
                         <!-- Ruta -->
-                          <div class="form-group">
-                        <label for="idruta">Ruta</label>
-                        <select id="idruta" name="idruta" class="form-control" required>
-                            <option value="">Seleccione una ruta…</option>
-                            <?php foreach ($rutas as $r): ?>
-                            <option value="<?= $r['idruta'] ?>">
-                                <?= htmlspecialchars($r['nombre']) ?> —
-                                <?= htmlspecialchars($r['destino']) ?>
-                                <?php if ($r['encargado']): ?>
-                                (<?= htmlspecialchars($r['encargado']) ?>)
-                                <?php endif; ?>
-                            </option>
-                            <?php endforeach; ?>
-                        </select>
+                        <div class="form-group">
+                            <label for="ruta_encargado">Ruta</label>
+                            <select name="idruta_encargado" id="ruta_encargado" class="form-control" required>
+                                <option value="">Seleccione una ruta…</option>
+                                <?php foreach ($rutas as $r): ?>
+                                    <option value="<?= (int)$r['idruta'] ?>"
+                                            data-encargado="<?= htmlspecialchars($r['encargado_nombre'] ?? '') ?>"
+                                            data-telefono="<?= htmlspecialchars($r['telefono'] ?? '') ?>">
+                                        <?= htmlspecialchars($r['ruta_nombre']) ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
                         </div>
 
                         <div class="form-group">
@@ -623,31 +598,6 @@ document.addEventListener('DOMContentLoaded', function () {
             $btn.prop('disabled', false).text('Guardar cambios');
             alert('Error del servidor al actualizar el encargado.');
         });
-    });
-    $("#accion").empty();
-        if (Array.isArray(data.acciones) && data.acciones.length > 0) {
-            data.acciones.forEach(a => {
-                const req = a.requiere_personas ? '1' : '0';
-                $("#accion").append(
-                    `<option value="${a.idaccion}" data-requiere-personas="${req}">${a.nombre}</option>`
-                );
-            });
-            $("#boxAcciones").fadeIn();
-        }
-        // al cambiar de ruta, siempre reseteamos el campo de personas
-        $("#total_personas").prop("disabled", true).prop("required", false).val("");
-});
-</script>
-<script>
-$(document).ready(function() {
-    $('#idruta').select2({
-        placeholder: "Escriba para buscar su ruta…",
-        allowClear: true,
-        width: '100%',
-        language: {
-            noResults: () => "No se encontraron rutas",
-            searching: () => "Buscando…"
-        }
     });
 });
 </script>
