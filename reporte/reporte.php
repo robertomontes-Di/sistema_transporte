@@ -118,6 +118,7 @@ try {
     $stmt = $pdo->query("
         SELECT idaccion, nombre, tipo_accion, flag_arrival, orden
         FROM acciones
+        where flag_arrival=0
         ORDER BY orden ASC, nombre ASC
     ");
     $acciones = $stmt->fetchAll(PDO::FETCH_ASSOC);
