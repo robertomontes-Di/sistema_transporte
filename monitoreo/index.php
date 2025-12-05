@@ -259,7 +259,9 @@ try {
 } catch (Throwable $e) {
     $rutas = [];
 }
-
+$title = "Crear Registro";
+include "../templates/header.php";
+include "../templates/sidebar.php";
 ?>
 <!DOCTYPE html>
 <html lang="es">
