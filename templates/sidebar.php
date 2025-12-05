@@ -17,8 +17,7 @@ if (!isset($currentPage)) {
          alt="Logo"
          style="opacity: .9; width:auto; height:50px; object-fit:cover;">
     <span class="brand-text font-weight-light ml-2"> </span>
-</a>
-
+  </a>
 
   <!-- Sidebar -->
   <div class="sidebar">
@@ -82,18 +81,14 @@ if (!isset($currentPage)) {
           </ul>
         </li>
 
-        <!-- REPORTES / ANÁLISIS -->
-        <!-- <li class="nav-item">
-          <a href="<?= BASE_URL ?>/reporte/lista_reportes.php"
-             class="nav-link <?= $currentPage === 'reporte_listado' ? 'active' : '' ?>">
-            <i class="nav-icon fas fa-clipboard-list"></i>
-            <p>Listado de reportes</p>
-          </a>
-        </li> -->
-
         <!-- ADMINISTRACIÓN -->
-        <li class="nav-item has-treeview <?= in_array($currentPage, ['admin_rutas','admin_ruta']) ? 'menu-open' : '' ?>">
-          <a href="#" class="nav-link <?= in_array($currentPage, ['admin_rutas','admin_ruta']) ? 'active' : '' ?>">
+        <?php
+          // añadimos una clave específica para el resumen:
+          // 'admin_resumen_rutas'
+          $adminPages = ['admin_rutas', 'admin_ruta', 'admin_resumen_rutas'];
+        ?>
+        <li class="nav-item has-treeview <?= in_array($currentPage, $adminPages) ? 'menu-open' : '' ?>">
+          <a href="#" class="nav-link <?= in_array($currentPage, $adminPages) ? 'active' : '' ?>">
             <i class="nav-icon fas fa-cogs"></i>
             <p>
               Administración
@@ -108,7 +103,13 @@ if (!isset($currentPage)) {
                 <p>Rutas</p>
               </a>
             </li>
-            <!-- Aquí puedes agregar más opciones de administración -->
+            <li class="nav-item">
+              <a href="<?= BASE_URL ?>/Reporteria/reporte_rutas_resumen.php"
+                 class="nav-link <?= $currentPage === 'admin_resumen_rutas' ? 'active' : '' ?>">
+                <i class="far fa-circle nav-icon"></i>
+                <p>Resumen de rutas</p>
+              </a>
+            </li>
           </ul>
         </li>
 
