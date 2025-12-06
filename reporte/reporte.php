@@ -90,15 +90,14 @@ try {
 // ===============================
 // 5) Revisar si YA existe un primer reporte hoy
 // ===============================
-$tienePrimerReporte = false;
+$tienePrimerReporte = 0;
 try {
     if ($idAccionSalida) {
         $stmt = $pdo->prepare("
             SELECT COUNT(*) 
             FROM reporte 
             WHERE idruta = :idruta 
-              AND idaccion = :idaccion
-              AND DATE(fecha_reporte) = CURDATE()
+             
         ");
         $stmt->execute([
             ':idruta'   => $idruta,
@@ -107,7 +106,7 @@ try {
         $tienePrimerReporte = $stmt->fetchColumn() > 0;
     }
 } catch (Throwable $e) {
-    $tienePrimerReporte = false;
+    $tienePrimerReporte = 0;
 }
 
 // ===============================

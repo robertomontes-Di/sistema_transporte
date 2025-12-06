@@ -243,13 +243,21 @@ if ($formStep === 'primer_reporte' && $idAccionSalida) {
             ]);
 
             // 2) Activar la ruta cuando sale hacia el estadio
-            $stmtActiva = $pdo->prepare("
+
+            if ($idAccionSalida = 15) {
+                $stmtActiva = $pdo->prepare("
                 UPDATE ruta
                 SET activa = 1
                 WHERE idruta = :idruta
             ");
-            $stmtActiva->execute([':idruta' => $idruta]);
+
+                $stmtActiva->execute([':idruta' => $idruta]);
+            }
+
+
             // 3) Activar actualizar personas que suben al bus en la parada si la accion lo requiere
+            //15	Salida del punto de inicio
+            //2	Abordaje de personas
             if ($idAccionSalida = 2 || $idAccionSalida == 15) {
                 $stmtActiva = $pdo->prepare("
                 UPDATE paradas
@@ -257,6 +265,16 @@ if ($formStep === 'primer_reporte' && $idAccionSalida) {
                 WHERE idparada = :idparada
             ");
                 $stmtActiva->execute([':atendido' => 1, ':idparada' => $idParadaDefault]);
+            }
+            //16    LLegada al punto de destino
+            if ($idAccionSalida = 16) {
+                $stmtActiva = $pdo->prepare("
+                UPDATE ruta
+                SET activa = 0
+                flag_arrival=1
+                WHERE idruta = :idruta
+            ");
+                $stmtActiva->execute([':idruta' => $idruta]);
             }
             $pdo->commit();
 
