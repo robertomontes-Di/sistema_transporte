@@ -55,7 +55,7 @@ if (!isset($currentPage)) {
         </li>
 
         <!-- OPERACIÓN EN RUTA -->
-        <li class="nav-item has-treeview <?= in_array($currentPage, ['monitoreo','monitoreo_listado']) ? 'menu-open' : '' ?>">
+        <li class="nav-item has-treeview <?= in_array($currentPage, ['monitoreo','monitoreo']) ? 'menu-open' : '' ?>">
           <a href="#" class="nav-link <?= in_array($currentPage, ['monitoreo','monitoreo_listado']) ? 'active' : '' ?>">
             <i class="nav-icon fas fa-bus-alt"></i>
             <p>
@@ -80,15 +80,9 @@ if (!isset($currentPage)) {
             </li>
           </ul>
         </li>
-
         <!-- ADMINISTRACIÓN -->
-        <?php
-          // añadimos una clave específica para el resumen:
-          // 'admin_resumen_rutas'
-          $adminPages = ['admin_rutas', 'admin_ruta', 'admin_resumen_rutas'];
-        ?>
-        <li class="nav-item has-treeview <?= in_array($currentPage, $adminPages) ? 'menu-open' : '' ?>">
-          <a href="#" class="nav-link <?= in_array($currentPage, $adminPages) ? 'active' : '' ?>">
+        <li class="nav-item has-treeview <?= in_array($currentPage, ['administracion','admin_rutas_listado']) ? 'menu-open' : '' ?>">
+          <a href="#" class="nav-link <?= in_array($currentPage, ['administracion','reporte_rutas_resumen']) ? 'active' : '' ?>">
             <i class="nav-icon fas fa-cogs"></i>
             <p>
               Administración
@@ -105,7 +99,7 @@ if (!isset($currentPage)) {
             </li>
             <li class="nav-item">
               <a href="<?= BASE_URL ?>/Reporteria/reporte_rutas_resumen.php"
-                 class="nav-link <?= $currentPage === 'admin_resumen_rutas' ? 'active' : '' ?>">
+                 class="nav-link <?= $currentPage === 'reporte_rutas_resumen' ? 'active' : '' ?>">
                 <i class="far fa-circle nav-icon"></i>
                 <p>Resumen de rutas</p>
               </a>
