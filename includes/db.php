@@ -2,9 +2,9 @@
 // includes/db.php
 // Ajusta credenciales antes de usar
 date_default_timezone_set('America/El_Salvador');
-$DB_HOST = '136.116.4.37';
+$DB_HOST = '192.168.1.3';
 $DB_NAME = 'transport';
-$DB_USER = 'transport_user';
+$DB_USER = 'application';
 $DB_PASS = 'Int3124&DI';
 
 try {
