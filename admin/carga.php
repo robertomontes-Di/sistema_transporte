@@ -25,7 +25,7 @@ $GOOGLE_API_KEY = defined('GOOGLE_MAPS_API_KEY')
     : 'AIzaSyC2Zm7v7BAdKaA-KAvna0q4y0lQgwvE1V4'; // <-- REEMPLAZA AQUÍ CON TU KEY SI NO USAS CONFIG
 
 // Hora objetivo de llegada al destino (Estadio / Destino de la ruta)
-const HORA_LLEGADA_DESTINO = '11:00:00';
+const HORA_LLEGADA_DESTINO = '08:00:00';
 
 /**
  * Realiza un GET a una URL y devuelve array JSON decodificado o null.

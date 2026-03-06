@@ -10,6 +10,7 @@ session_start();
 require_once __DIR__ . '/../includes/config.php';
 require_once __DIR__ . '/../includes/db.php';
 
+
 // ===============================
 // 1) Validar sesión de la ruta
 // ===============================
@@ -427,7 +428,34 @@ foreach ($acciones as $a) {
     rel="stylesheet"
     href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css"
   >
-  <style>
+ <style>
+  .wizard-steps {
+    display: flex; gap: 10px; margin: 10px 0 20px;
+  }
+  .wizard-step {
+    flex: 1; display:flex; align-items:center;
+    background:#e9ecef; border-radius:8px; overflow:hidden;
+    border: 1px solid rgba(0,0,0,.08);
+  }
+  .wizard-step .num {
+    width: 44px; height: 44px; display:flex; align-items:center; justify-content:center;
+    font-weight: 700; background:#adb5bd; color:#fff;
+  }
+  .wizard-step .label {
+    padding: 0 12px; font-weight:600; color:#495057; font-size:.95rem;
+  }
+  .wizard-step.active .num,
+  .wizard-step.done .num { background:#20c997; }
+  .wizard-step.active .label { color:#212529; }
+  .wizard-step.done { background:#f8f9fa; }
+  .wizard-panel { display:none; }
+  .wizard-panel.active { display:block; }
+  .wizard-actions { display:flex; gap:10px; margin-top:15px; }
+  .wizard-actions .btn { flex:1; }
+  .wizard-summary { background:#f8f9fa; border:1px solid rgba(0,0,0,.08); border-radius:8px; padding:12px; }
+  .wizard-summary small { color:#6c757d; }
+</style>
+ <style>
     body {
       background-color: #f1f5f9;
     }
@@ -488,24 +516,144 @@ foreach ($acciones as $a) {
       // Separar acciones por tipo de severidad (normal / crítico / inconveniente)
       ?>
 
+<!-- -------------------FORM Wizard  2026---------------------------- -->
+<form method="post" autocomplete="off" id="formNuevoReporte">
+  <input type="hidden" name="form_step" value="nuevo_reporte">
+  <input type="hidden" name="idaccion" id="idaccion_real" value="">
+
+  <!-- Wizard header -->
+  <div class="wizard-steps">
+    <div class="wizard-step active" data-step="1">
+      <div class="num">1</div><div class="label">Tipo</div>
+    </div>
+    <div class="wizard-step" data-step="2">
+      <div class="num">2</div><div class="label">Detalle</div>
+    </div>
+    <div class="wizard-step" data-step="3">
+      <div class="num">3</div><div class="label">Confirmar</div>
+    </div>
+  </div>
+
+  <!-- STEP 1 -->
+  <div class="wizard-panel active" data-panel="1">
+    <div class="form-group">
+      <label for="tipo_reporte">Tipo de reporte</label>
+      <select name="tipo_reporte" id="tipo_reporte" class="form-control" required>
+        <option value="">Seleccione…</option>
+        <option value="normal">Normal</option>
+        <option value="incidente">Incidente</option>
+      </select>
+      <small class="form-text text-muted">Elige si es un reporte normal o un incidente.</small>
+    </div>
+
+    <div class="wizard-actions">
+      <button type="button" class="btn btn-primary" id="btnNext1">Siguiente</button>
+    </div>
+  </div>
+
+  <!-- STEP 2 -->
+  <div class="wizard-panel" data-panel="2">
+    <!-- NORMAL -->
+    <div class="form-group" id="grupo_normal" style="display:none;">
+      <label for="idaccion_normal">Detalle del reporte (normal)</label>
+      <select id="idaccion_normal" class="form-control">
+        <option value="">Seleccione…</option>
+        <?php foreach ($accionesNormal as $a): ?>
+          <?php $requiere = accionRequierePersonas($a['nombre'], $accionesRequierenPersonas) ? '1' : '0'; ?>
+          <option value="<?= (int)$a['idaccion'] ?>" data-requiere-personas="<?= $requiere ?>">
+            <?= htmlspecialchars($a['nombre']) ?>
+          </option>
+        <?php endforeach; ?>
+      </select>
+    </div>
+
+    <!-- INCIDENTE -->
+    <div class="form-group" id="grupo_incidente" style="display:none;">
+      <label for="idaccion_incidente">Detalle del incidente</label>
+      <select id="idaccion_incidente" class="form-control">
+        <option value="">Seleccione…</option>
+
+        <?php if (!empty($accionesCritico)): ?>
+          <optgroup label="Crítico">
+            <?php foreach ($accionesCritico as $a): ?>
+              <?php $requiere = accionRequierePersonas($a['nombre'], $accionesRequierenPersonas) ? '1' : '0'; ?>
+              <option value="<?= (int)$a['idaccion'] ?>" data-requiere-personas="<?= $requiere ?>">
+                <?= htmlspecialchars($a['nombre']) ?>
+              </option>
+            <?php endforeach; ?>
+          </optgroup>
+        <?php endif; ?>
+
+        <?php if (!empty($accionesInconveniente)): ?>
+          <optgroup label="Inconveniente">
+            <?php foreach ($accionesInconveniente as $a): ?>
+              <?php $requiere = accionRequierePersonas($a['nombre'], $accionesRequierenPersonas) ? '1' : '0'; ?>
+              <option value="<?= (int)$a['idaccion'] ?>" data-requiere-personas="<?= $requiere ?>">
+                <?= htmlspecialchars($a['nombre']) ?>
+              </option>
+            <?php endforeach; ?>
+          </optgroup>
+        <?php endif; ?>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="total_personas_main">Cantidad de personas que subieron</label>
+      <input type="number" name="total_personas" id="total_personas_main"
+             class="form-control" min="0" disabled>
+      <small class="form-text text-muted">
+        Solo se habilita para eventos como “Abordaje de personas” o “Salida del punto de inicio”.
+      </small>
+    </div>
+
+    <div class="form-group">
+      <label for="comentario">Comentario (opcional)</label>
+      <textarea name="comentario" id="comentario" class="form-control" rows="3"></textarea>
+    </div>
+
+    <div class="wizard-actions">
+      <button type="button" class="btn btn-outline-secondary" id="btnBack2">Atrás</button>
+      <button type="button" class="btn btn-primary" id="btnNext2">Siguiente</button>
+    </div>
+  </div>
+
+  <!-- STEP 3 -->
+  <div class="wizard-panel" data-panel="3">
+    <div class="wizard-summary">
+      <div><strong>Tipo:</strong> <span id="sumTipo">—</span></div>
+      <div><strong>Acción:</strong> <span id="sumAccion">—</span></div>
+      <div><strong>Personas:</strong> <span id="sumPersonas">—</span></div>
+      <div class="mt-2"><strong>Comentario:</strong></div>
+      <small id="sumComentario">—</small>
+    </div>
+
+    <div class="wizard-actions">
+      <button type="button" class="btn btn-outline-secondary" id="btnBack3">Atrás</button>
+      <button type="submit" class="btn btn-success">Confirmar y enviar</button>
+    </div>
+  </div>
+</form>
+
+
+<!-- 
       <form method="post" autocomplete="off" id="formNuevoReporte">
-        <input type="hidden" name="form_step" value="nuevo_reporte">
+        <input type="hidden" name="form_step" value="nuevo_reporte"> -->
 
         <!-- Campo REAL que verá el backend (idaccion numérico) -->
-        <input type="hidden" name="idaccion" id="idaccion_real" value="">
+        <!-- <input type="hidden" name="idaccion" id="idaccion_real" value=""> -->
 
         <!-- 1) Tipo de reporte: Normal / Incidente -->
-        <div class="form-group">
+        <!-- <div class="form-group">
           <label for="tipo_reporte">Tipo de reporte</label>
           <select name="tipo_reporte" id="tipo_reporte" class="form-control" required>
             <option value="">Seleccione…</option>
             <option value="normal">Normal</option>
             <option value="incidente">Incidente</option>
           </select>
-        </div>
+        </div> -->
 
         <!-- 2) Detalle cuando es NORMAL -->
-        <div class="form-group" id="grupo_normal" style="display:none;">
+        <!-- <div class="form-group" id="grupo_normal" style="display:none;">
           <label for="idaccion_normal">Detalle del reporte (normal)</label>
           <select id="idaccion_normal" class="form-control">
             <option value="">Seleccione…</option>
@@ -519,16 +667,16 @@ foreach ($acciones as $a) {
               </option>
             <?php endforeach; ?>
           </select>
-        </div>
+        </div> -->
 
         <!-- 3) Detalle cuando es INCIDENTE -->
-        <div class="form-group" id="grupo_incidente" style="display:none;">
+        <!-- <div class="form-group" id="grupo_incidente" style="display:none;">
           <label for="idaccion_incidente">Detalle del incidente</label>
           <select id="idaccion_incidente" class="form-control">
-            <option value="">Seleccione…</option>
+            <option value="">Seleccione…</option> -->
 
             <!-- Crítico -->
-            <?php if (!empty($accionesCritico)): ?>
+            <!-- <?php if (!empty($accionesCritico)): ?>
               <optgroup label="Crítico">
                 <?php foreach ($accionesCritico as $a): ?>
                   <?php
@@ -540,10 +688,10 @@ foreach ($acciones as $a) {
                   </option>
                 <?php endforeach; ?>
               </optgroup>
-            <?php endif; ?>
+            <?php endif; ?> -->
 
             <!-- Inconveniente -->
-            <?php if (!empty($accionesInconveniente)): ?>
+            <!-- <?php if (!empty($accionesInconveniente)): ?>
               <optgroup label="Inconveniente">
                 <?php foreach ($accionesInconveniente as $a): ?>
                   <?php
@@ -557,10 +705,10 @@ foreach ($acciones as $a) {
               </optgroup>
             <?php endif; ?>
           </select>
-        </div>
+        </div> -->
 
         <!-- 4) Cantidad de personas (se activa solo si aplica) -->
-        <div class="form-group">
+        <!-- <div class="form-group">
           <label for="total_personas_main">Cantidad de personas que subieron</label>
           <input type="number"
                 name="total_personas"
@@ -571,10 +719,10 @@ foreach ($acciones as $a) {
           <small class="form-text text-muted">
             Solo se habilita para eventos como “Abordaje de personas”, “Salida del punto de inicio” o “Retorno a punto de inicio”.
           </small>
-        </div>
+        </div> -->
 
         <!-- 5) Comentario general -->
-        <div class="form-group">
+        <!-- <div class="form-group">
           <label for="comentario">Comentario (opcional)</label>
           <textarea
             name="comentario"
@@ -587,12 +735,12 @@ foreach ($acciones as $a) {
         <button type="submit" class="btn btn-primary btn-block">
           Enviar reporte
         </button>
-      </form>
+      </form> -->
 
       <hr>
 
       <!-- Botón aparte para enviar solo ubicación -->
-      <form method="post" id="formUbicacion" class="mt-3">
+      <!-- <form method="post" id="formUbicacion" class="mt-3">
         <input type="hidden" name="form_step" value="ubicacion">
         <input type="hidden" name="lat" id="lat">
         <input type="hidden" name="lng" id="lng">
@@ -604,7 +752,7 @@ foreach ($acciones as $a) {
         <small class="form-text text-muted">
           Este botón solo envía la posición GPS de la unidad (sin crear un nuevo evento de reporte).
         </small>
-      </form>
+      </form> -->
     </div>
   </div>
 
@@ -670,7 +818,142 @@ if (btnUbicacion) {
 
 })();
 </script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const steps = Array.from(document.querySelectorAll('.wizard-step'));
+  const panels = Array.from(document.querySelectorAll('.wizard-panel'));
 
+  const tipoReporte   = document.getElementById('tipo_reporte');
+  const grupoNormal   = document.getElementById('grupo_normal');
+  const grupoIncidente= document.getElementById('grupo_incidente');
+  const selNormal     = document.getElementById('idaccion_normal');
+  const selIncidente  = document.getElementById('idaccion_incidente');
+  const inputPersonas = document.getElementById('total_personas_main');
+  const idaccionReal  = document.getElementById('idaccion_real');
+  const comentario    = document.getElementById('comentario');
+
+  const btnNext1 = document.getElementById('btnNext1');
+  const btnNext2 = document.getElementById('btnNext2');
+  const btnBack2 = document.getElementById('btnBack2');
+  const btnBack3 = document.getElementById('btnBack3');
+
+  const sumTipo = document.getElementById('sumTipo');
+  const sumAccion = document.getElementById('sumAccion');
+  const sumPersonas = document.getElementById('sumPersonas');
+  const sumComentario = document.getElementById('sumComentario');
+
+  function setStep(n) {
+    panels.forEach(p => p.classList.toggle('active', p.dataset.panel == n));
+    steps.forEach(s => {
+      const sn = parseInt(s.dataset.step, 10);
+      s.classList.toggle('active', sn === n);
+      s.classList.toggle('done', sn < n);
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function limpiarSelectsDetalle() {
+    if (selNormal) selNormal.value = '';
+    if (selIncidente) selIncidente.value = '';
+    inputPersonas.disabled = true;
+    inputPersonas.value = '';
+    idaccionReal.value = '';
+  }
+
+  function actualizarVistaDetallePorTipo() {
+    limpiarSelectsDetalle();
+    if (tipoReporte.value === 'normal') {
+      grupoNormal.style.display = 'block';
+      grupoIncidente.style.display = 'none';
+    } else if (tipoReporte.value === 'incidente') {
+      grupoNormal.style.display = 'none';
+      grupoIncidente.style.display = 'block';
+    } else {
+      grupoNormal.style.display = 'none';
+      grupoIncidente.style.display = 'none';
+    }
+  }
+
+  function actualizarInputPersonas(select) {
+    const opt = select.options[select.selectedIndex];
+    const requiere = opt && opt.dataset.requierePersonas === '1';
+    if (requiere) {
+      inputPersonas.disabled = false;
+    } else {
+      inputPersonas.disabled = true;
+      inputPersonas.value = '';
+    }
+  }
+
+  // Eventos existentes (misma lógica tuya)
+  tipoReporte.addEventListener('change', actualizarVistaDetallePorTipo);
+
+  if (selNormal) {
+    selNormal.addEventListener('change', function () {
+      idaccionReal.value = this.value || '';
+      actualizarInputPersonas(this);
+    });
+  }
+
+  if (selIncidente) {
+    selIncidente.addEventListener('change', function () {
+      idaccionReal.value = this.value || '';
+      actualizarInputPersonas(this);
+    });
+  }
+
+  // Wizard navegación
+  btnNext1.addEventListener('click', function () {
+    if (!tipoReporte.value) {
+      alert('Selecciona el tipo de reporte.');
+      return;
+    }
+    actualizarVistaDetallePorTipo();
+    setStep(2);
+  });
+
+  btnBack2.addEventListener('click', () => setStep(1));
+
+  btnNext2.addEventListener('click', function () {
+    if (!idaccionReal.value) {
+      alert('Selecciona el detalle del reporte.');
+      return;
+    }
+
+    // Si el input está habilitado, debe tener valor > 0
+    if (!inputPersonas.disabled) {
+      const val = parseInt(inputPersonas.value || '0', 10);
+      if (val <= 0) {
+        alert('Ingresa la cantidad de personas.');
+        return;
+      }
+    }
+
+    // Resumen (Paso 3)
+    sumTipo.textContent = (tipoReporte.value === 'normal') ? 'Normal' : 'Incidente';
+
+    // Texto de la acción seleccionada
+    let accionTxt = '—';
+    if (tipoReporte.value === 'normal' && selNormal.value) {
+      accionTxt = selNormal.options[selNormal.selectedIndex].text;
+    }
+    if (tipoReporte.value === 'incidente' && selIncidente.value) {
+      accionTxt = selIncidente.options[selIncidente.selectedIndex].text;
+    }
+    sumAccion.textContent = accionTxt;
+
+    sumPersonas.textContent = inputPersonas.disabled ? 'No aplica' : (inputPersonas.value || '—');
+    sumComentario.textContent = comentario.value ? comentario.value : '—';
+
+    setStep(3);
+  });
+
+  btnBack3.addEventListener('click', () => setStep(2));
+
+  // Inicial
+  actualizarVistaDetallePorTipo();
+});
+</script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
   const tipoReporte   = document.getElementById('tipo_reporte');
